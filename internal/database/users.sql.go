@@ -12,33 +12,64 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countUsersBySchoolAndRole = `-- name: CountUsersBySchoolAndRole :one
+SELECT COUNT(*)::bigint AS total
+FROM users
+WHERE school_id = $1 AND role = $2
+`
+
+type CountUsersBySchoolAndRoleParams struct {
+	SchoolID pgtype.UUID `json:"school_id"`
+	Role     string      `json:"role"`
+}
+
+func (q *Queries) CountUsersBySchoolAndRole(ctx context.Context, arg CountUsersBySchoolAndRoleParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsersBySchoolAndRole, arg.SchoolID, arg.Role)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, password_hash, full_name, role)
-VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, full_name, role, created_at
+INSERT INTO users (email, password_hash, full_name, role, school_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, email, password_hash, full_name, role, school_id, created_at
 `
 
 type CreateUserParams struct {
-	Email        string `json:"email"`
-	PasswordHash string `json:"password_hash"`
-	FullName     string `json:"full_name"`
-	Role         string `json:"role"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	FullName     string      `json:"full_name"`
+	Role         string      `json:"role"`
+	SchoolID     pgtype.UUID `json:"school_id"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+type CreateUserRow struct {
+	ID           uuid.UUID          `json:"id"`
+	Email        string             `json:"email"`
+	PasswordHash string             `json:"password_hash"`
+	FullName     string             `json:"full_name"`
+	Role         string             `json:"role"`
+	SchoolID     pgtype.UUID        `json:"school_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.Email,
 		arg.PasswordHash,
 		arg.FullName,
 		arg.Role,
+		arg.SchoolID,
 	)
-	var i User
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
 		&i.FullName,
 		&i.Role,
+		&i.SchoolID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -55,47 +86,69 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, full_name, role, created_at
+SELECT id, email, password_hash, full_name, role, school_id, created_at
 FROM users
 WHERE email = $1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+type GetUserByEmailRow struct {
+	ID           uuid.UUID          `json:"id"`
+	Email        string             `json:"email"`
+	PasswordHash string             `json:"password_hash"`
+	FullName     string             `json:"full_name"`
+	Role         string             `json:"role"`
+	SchoolID     pgtype.UUID        `json:"school_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i User
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
 		&i.FullName,
 		&i.Role,
+		&i.SchoolID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, full_name, role, created_at
+SELECT id, email, password_hash, full_name, role, school_id, created_at
 FROM users
 WHERE id = $1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+type GetUserByIDRow struct {
+	ID           uuid.UUID          `json:"id"`
+	Email        string             `json:"email"`
+	PasswordHash string             `json:"password_hash"`
+	FullName     string             `json:"full_name"`
+	Role         string             `json:"role"`
+	SchoolID     pgtype.UUID        `json:"school_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
 		&i.FullName,
 		&i.Role,
+		&i.SchoolID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, full_name, role, created_at
+SELECT id, email, full_name, role, school_id, created_at
 FROM users
 ORDER BY created_at DESC
 `
@@ -105,6 +158,7 @@ type ListUsersRow struct {
 	Email     string             `json:"email"`
 	FullName  string             `json:"full_name"`
 	Role      string             `json:"role"`
+	SchoolID  pgtype.UUID        `json:"school_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -122,6 +176,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 			&i.Email,
 			&i.FullName,
 			&i.Role,
+			&i.SchoolID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -135,7 +190,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 }
 
 const listUsersByRole = `-- name: ListUsersByRole :many
-SELECT id, email, full_name, role, created_at
+SELECT id, email, full_name, role, school_id, created_at
 FROM users
 WHERE role = $1
 ORDER BY full_name ASC
@@ -146,6 +201,7 @@ type ListUsersByRoleRow struct {
 	Email     string             `json:"email"`
 	FullName  string             `json:"full_name"`
 	Role      string             `json:"role"`
+	SchoolID  pgtype.UUID        `json:"school_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -163,6 +219,98 @@ func (q *Queries) ListUsersByRole(ctx context.Context, role string) ([]ListUsers
 			&i.Email,
 			&i.FullName,
 			&i.Role,
+			&i.SchoolID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersBySchool = `-- name: ListUsersBySchool :many
+SELECT id, email, full_name, role, school_id, created_at
+FROM users
+WHERE school_id = $1
+ORDER BY full_name ASC
+`
+
+type ListUsersBySchoolRow struct {
+	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
+	FullName  string             `json:"full_name"`
+	Role      string             `json:"role"`
+	SchoolID  pgtype.UUID        `json:"school_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListUsersBySchool(ctx context.Context, schoolID pgtype.UUID) ([]ListUsersBySchoolRow, error) {
+	rows, err := q.db.Query(ctx, listUsersBySchool, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersBySchoolRow{}
+	for rows.Next() {
+		var i ListUsersBySchoolRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.FullName,
+			&i.Role,
+			&i.SchoolID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersBySchoolAndRole = `-- name: ListUsersBySchoolAndRole :many
+SELECT id, email, full_name, role, school_id, created_at
+FROM users
+WHERE school_id = $1 AND role = $2
+ORDER BY full_name ASC
+`
+
+type ListUsersBySchoolAndRoleParams struct {
+	SchoolID pgtype.UUID `json:"school_id"`
+	Role     string      `json:"role"`
+}
+
+type ListUsersBySchoolAndRoleRow struct {
+	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
+	FullName  string             `json:"full_name"`
+	Role      string             `json:"role"`
+	SchoolID  pgtype.UUID        `json:"school_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListUsersBySchoolAndRole(ctx context.Context, arg ListUsersBySchoolAndRoleParams) ([]ListUsersBySchoolAndRoleRow, error) {
+	rows, err := q.db.Query(ctx, listUsersBySchoolAndRole, arg.SchoolID, arg.Role)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersBySchoolAndRoleRow{}
+	for rows.Next() {
+		var i ListUsersBySchoolAndRoleRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.FullName,
+			&i.Role,
+			&i.SchoolID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -178,26 +326,44 @@ func (q *Queries) ListUsersByRole(ctx context.Context, role string) ([]ListUsers
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET full_name = COALESCE($2, full_name),
-    email = COALESCE($3, email)
+    email = COALESCE($3, email),
+    school_id = COALESCE($4, school_id)
 WHERE id = $1
-RETURNING id, email, password_hash, full_name, role, created_at
+RETURNING id, email, password_hash, full_name, role, school_id, created_at
 `
 
 type UpdateUserParams struct {
-	ID       uuid.UUID `json:"id"`
-	FullName string    `json:"full_name"`
-	Email    string    `json:"email"`
+	ID       uuid.UUID   `json:"id"`
+	FullName string      `json:"full_name"`
+	Email    string      `json:"email"`
+	SchoolID pgtype.UUID `json:"school_id"`
 }
 
-func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUser, arg.ID, arg.FullName, arg.Email)
-	var i User
+type UpdateUserRow struct {
+	ID           uuid.UUID          `json:"id"`
+	Email        string             `json:"email"`
+	PasswordHash string             `json:"password_hash"`
+	FullName     string             `json:"full_name"`
+	Role         string             `json:"role"`
+	SchoolID     pgtype.UUID        `json:"school_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error) {
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.ID,
+		arg.FullName,
+		arg.Email,
+		arg.SchoolID,
+	)
+	var i UpdateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.PasswordHash,
 		&i.FullName,
 		&i.Role,
+		&i.SchoolID,
 		&i.CreatedAt,
 	)
 	return i, err

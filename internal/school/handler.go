@@ -79,17 +79,79 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 		}
 		teacherID = &tid
 	} else if user != nil && user.Role == "teacher" {
-		// Default to showing current teacher's classes unless specified
 		teacherID = &user.UserID
 	}
 
-	classes, err := h.service.ListClasses(ctx, teacherID)
+	var schoolID *uuid.UUID
+	schoolParam := r.URL.Query().Get("school_id")
+	if schoolParam != "" {
+		sid, err := uuid.Parse(schoolParam)
+		if err != nil {
+			response.BadRequest(w, "invalid school_id format")
+			return
+		}
+		schoolID = &sid
+	} else if user != nil && user.SchoolID != nil {
+		// Scoped automatically to caller's facility
+		schoolID = user.SchoolID
+	}
+
+	classes, err := h.service.ListClasses(ctx, schoolID, teacherID)
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 
 	response.JSON(w, http.StatusOK, classes)
+}
+
+// CreateSchool handles POST /api/v1/schools (Sysadmin)
+func (h *Handler) CreateSchool(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req CreateSchoolRequest
+	if err := response.DecodeJSON(r, &req); err != nil {
+		response.BadRequest(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	school, err := h.service.CreateSchool(ctx, req)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusCreated, school)
+}
+
+// ListSchools handles GET /api/v1/schools (Sysadmin & School Admin)
+func (h *Handler) ListSchools(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	schools, err := h.service.ListSchools(ctx)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, schools)
+}
+
+// GetSchool handles GET /api/v1/schools/{id}
+func (h *Handler) GetSchool(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		response.BadRequest(w, "invalid school ID format")
+		return
+	}
+
+	school, err := h.service.GetSchool(ctx, id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, school)
 }
 
 // EnrollStudent handles POST /api/v1/classes/{id}/enroll
@@ -318,6 +380,53 @@ func (h *Handler) GetStudentOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, overview)
+}
+
+// ListStateRegions handles GET /api/v1/pcodes/states
+func (h *Handler) ListStateRegions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	states, err := h.service.ListStateRegions(ctx)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, states)
+}
+
+// ListTownships handles GET /api/v1/pcodes/townships?sr=MMR013
+func (h *Handler) ListTownships(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	sr := r.URL.Query().Get("sr")
+	townships, err := h.service.ListTownships(ctx, sr)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, townships)
+}
+
+// ListWards handles GET /api/v1/pcodes/wards?ts=MMR013001
+func (h *Handler) ListWards(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ts := r.URL.Query().Get("ts")
+	wards, err := h.service.ListWards(ctx, ts)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, wards)
+}
+
+// SearchPCodes handles GET /api/v1/pcodes/search?q=Dagon
+func (h *Handler) SearchPCodes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query().Get("q")
+	results, err := h.service.SearchPCodes(ctx, q)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, results)
 }
 
 func handleError(w http.ResponseWriter, err error) {

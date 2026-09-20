@@ -6,6 +6,73 @@ import (
 	"github.com/google/uuid"
 )
 
+// PCodeDTO represents a MIMU administrative division (State/Region, Township, Ward/Village Tract)
+type PCodeDTO struct {
+	PCode       string  `json:"pcode"`
+	ParentPCode *string `json:"parent_pcode,omitempty"`
+	AdminLevel  int     `json:"admin_level"`
+	NameEn      string  `json:"name_en"`
+	NameMy      string  `json:"name_my"`
+	SRPCode     *string `json:"sr_pcode,omitempty"`
+	TSPCode     *string `json:"ts_pcode,omitempty"`
+	PCodeType   string  `json:"pcode_type"`
+}
+
+// SchoolDTO represents a tenant educational facility with MIMU P-Code metadata
+type SchoolDTO struct {
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	Code            string    `json:"code"`
+	Address         string    `json:"address"`
+	City            string    `json:"city"`
+	Region          string    `json:"region"`
+	Phone           string    `json:"phone"`
+	Status          string    `json:"status"`
+	PCodeSR         *string   `json:"pcode_sr,omitempty"`
+	PCodeTS         *string   `json:"pcode_ts,omitempty"`
+	PCodeWardVT     *string   `json:"pcode_ward_vt,omitempty"`
+	PCodeLevel      *string   `json:"pcode_level,omitempty"`
+	TownshipName    *string   `json:"township_name,omitempty"`
+	WardVillageName *string   `json:"ward_village_name,omitempty"`
+	SchoolCategory  *string   `json:"school_category,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// CreateSchoolRequest contains fields for creating a new school tenant
+type CreateSchoolRequest struct {
+	Name            string  `json:"name"`
+	Code            string  `json:"code"`
+	Address         string  `json:"address"`
+	City            string  `json:"city"`
+	Region          string  `json:"region"`
+	Phone           string  `json:"phone"`
+	Status          string  `json:"status"`
+	PCodeSR         *string `json:"pcode_sr,omitempty"`
+	PCodeTS         *string `json:"pcode_ts,omitempty"`
+	PCodeWardVT     *string `json:"pcode_ward_vt,omitempty"`
+	PCodeLevel      *string `json:"pcode_level,omitempty"`
+	TownshipName    *string `json:"township_name,omitempty"`
+	WardVillageName *string `json:"ward_village_name,omitempty"`
+	SchoolCategory  *string `json:"school_category,omitempty"`
+}
+
+// UpdateSchoolRequest contains fields for updating a school
+type UpdateSchoolRequest struct {
+	Name            *string `json:"name,omitempty"`
+	Address         *string `json:"address,omitempty"`
+	City            *string `json:"city,omitempty"`
+	Region          *string `json:"region,omitempty"`
+	Phone           *string `json:"phone,omitempty"`
+	Status          *string `json:"status,omitempty"`
+	PCodeSR         *string `json:"pcode_sr,omitempty"`
+	PCodeTS         *string `json:"pcode_ts,omitempty"`
+	PCodeWardVT     *string `json:"pcode_ward_vt,omitempty"`
+	PCodeLevel      *string `json:"pcode_level,omitempty"`
+	TownshipName    *string `json:"township_name,omitempty"`
+	WardVillageName *string `json:"ward_village_name,omitempty"`
+	SchoolCategory  *string `json:"school_category,omitempty"`
+}
+
 // ClassDTO represents a class entity returned to clients
 type ClassDTO struct {
 	ID           uuid.UUID `json:"id"`
@@ -13,6 +80,7 @@ type ClassDTO struct {
 	GradeLevel   string    `json:"grade_level"`
 	TeacherID    uuid.UUID `json:"teacher_id"`
 	AcademicYear string    `json:"academic_year"`
+	SchoolID     uuid.UUID `json:"school_id"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -22,6 +90,7 @@ type CreateClassRequest struct {
 	GradeLevel   string     `json:"grade_level"`
 	AcademicYear string     `json:"academic_year"`
 	TeacherID    *uuid.UUID `json:"teacher_id,omitempty"`
+	SchoolID     *uuid.UUID `json:"school_id,omitempty"`
 }
 
 // UpdateClassRequest contains parameters to update a class

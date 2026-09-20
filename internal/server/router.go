@@ -60,6 +60,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			response.JSON(w, http.StatusOK, map[string]string{
+				"status": "healthy",
+				"time":   time.Now().UTC().Format(time.RFC3339),
+			})
+		})
+
 		// Public Auth routes
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", cfg.AuthHandler.Login)
@@ -76,9 +83,30 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(cfg.AuthMiddleware.RequireAuth)
 
+			// Schools / Facilities (Multi-tenant management)
+			r.Route("/schools", func(r chi.Router) {
+				r.Group(func(adminOnly chi.Router) {
+					adminOnly.Use(cfg.AuthMiddleware.RequireRoles("sysadmin", "school_admin", "admin"))
+					adminOnly.Get("/", cfg.SchoolHandler.ListSchools)
+					adminOnly.Get("/{id}", cfg.SchoolHandler.GetSchool)
+				})
+				r.Group(func(sysOnly chi.Router) {
+					sysOnly.Use(cfg.AuthMiddleware.RequireRoles("sysadmin", "admin"))
+					sysOnly.Post("/", cfg.SchoolHandler.CreateSchool)
+				})
+			})
+
+			// MIMU Place Codes (Administrative Divisions)
+			r.Route("/pcodes", func(r chi.Router) {
+				r.Get("/states", cfg.SchoolHandler.ListStateRegions)
+				r.Get("/townships", cfg.SchoolHandler.ListTownships)
+				r.Get("/wards", cfg.SchoolHandler.ListWards)
+				r.Get("/search", cfg.SchoolHandler.SearchPCodes)
+			})
+
 			// Copilot routes (Teacher/Admin only)
 			r.Route("/copilot", func(r chi.Router) {
-				r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "admin"))
+				r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "school_admin", "admin", "sysadmin"))
 				r.Post("/lesson-plan", cfg.CopilotHandler.GenerateLessonPlan)
 				r.Get("/lesson-plans", cfg.CopilotHandler.ListLessonPlans)
 				r.Get("/lesson-plan/{id}", cfg.CopilotHandler.GetLessonPlan)
@@ -94,7 +122,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 				// Teacher/Admin actions
 				r.Group(func(r chi.Router) {
-					r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "admin"))
+					r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "school_admin", "admin", "sysadmin"))
 					r.Post("/", cfg.SchoolHandler.CreateClass)
 					r.Post("/{id}/enroll", cfg.SchoolHandler.EnrollStudent)
 					r.Post("/{id}/attendance", cfg.SchoolHandler.BatchRecordAttendance)
@@ -103,9 +131,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				})
 			})
 
-			// Student overview (Parent, Student, Teacher, Admin)
+			// Student overview (Parent, Student, Teacher, School Admin, Sysadmin)
 			r.Route("/students", func(r chi.Router) {
-				r.Use(cfg.AuthMiddleware.RequireRoles("student", "parent", "teacher", "admin"))
+				r.Use(cfg.AuthMiddleware.RequireRoles("student", "parent", "teacher", "school_admin", "admin", "sysadmin"))
 				r.Get("/{id}/overview", cfg.SchoolHandler.GetStudentOverview)
 			})
 
@@ -120,7 +148,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			// Submission grading (Teacher, Admin)
 			r.Route("/submissions", func(r chi.Router) {
 				r.Group(func(r chi.Router) {
-					r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "admin"))
+					r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "school_admin", "admin", "sysadmin"))
 					r.Post("/{id}/grade", cfg.SchoolHandler.GradeSubmission)
 				})
 			})

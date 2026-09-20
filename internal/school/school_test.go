@@ -51,8 +51,8 @@ func (m *mockQuerier) IsStudentEnrolled(ctx context.Context, arg database.IsStud
 	return true, nil
 }
 
-func (m *mockQuerier) GetUserByID(ctx context.Context, id uuid.UUID) (database.User, error) {
-	return database.User{
+func (m *mockQuerier) GetUserByID(ctx context.Context, id uuid.UUID) (database.GetUserByIDRow, error) {
+	return database.GetUserByIDRow{
 		ID:       id,
 		FullName: "Test Student",
 		Role:     "student",

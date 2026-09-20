@@ -49,6 +49,18 @@ tidy:
 clean:
 	rm -rf $(BIN_DIR)
 
+web-install:
+	cd web && npm install
+
+web-build:
+	cd web && npm run build
+	mkdir -p /var/www/edu
+	cp -r web/dist/* /var/www/edu/
+	chmod -R a+rX /var/www/edu
+
+web-dev:
+	cd web && npm run dev
+
 help:
 	@echo "Available commands:"
 	@echo "  make build          Compile API server binary into bin/"
@@ -56,6 +68,10 @@ help:
 	@echo "  make sqlc-generate  Generate typed Go database code using sqlc"
 	@echo "  make migrate-up     Apply schema migrations to PostgreSQL"
 	@echo "  make migrate-down   Rollback database schema"
+	@echo "  make seed           Seed sample data"
 	@echo "  make test           Run tests"
+	@echo "  make web-install    Install frontend npm dependencies"
+	@echo "  make web-build      Build and deploy web frontend to /var/www/edu"
+	@echo "  make web-dev        Run Vite development server"
 	@echo "  make tidy           Tidy go.mod dependencies"
 	@echo "  make clean          Remove build artifacts"

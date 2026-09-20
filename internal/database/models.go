@@ -36,6 +36,7 @@ type Class struct {
 	TeacherID    uuid.UUID          `json:"teacher_id"`
 	AcademicYear string             `json:"academic_year"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SchoolID     uuid.UUID          `json:"school_id"`
 }
 
 type ClassEnrollment struct {
@@ -56,6 +57,37 @@ type LessonPlan struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
+type MimuPcode struct {
+	Pcode       string             `json:"pcode"`
+	ParentPcode pgtype.Text        `json:"parent_pcode"`
+	AdminLevel  int32              `json:"admin_level"`
+	NameEn      string             `json:"name_en"`
+	NameMy      string             `json:"name_my"`
+	SrPcode     pgtype.Text        `json:"sr_pcode"`
+	TsPcode     pgtype.Text        `json:"ts_pcode"`
+	PcodeType   string             `json:"pcode_type"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type School struct {
+	ID              uuid.UUID          `json:"id"`
+	Name            string             `json:"name"`
+	Code            string             `json:"code"`
+	Address         string             `json:"address"`
+	City            string             `json:"city"`
+	Region          string             `json:"region"`
+	Phone           string             `json:"phone"`
+	Status          string             `json:"status"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	PcodeSr         pgtype.Text        `json:"pcode_sr"`
+	PcodeTs         pgtype.Text        `json:"pcode_ts"`
+	PcodeWardVt     pgtype.Text        `json:"pcode_ward_vt"`
+	PcodeLevel      pgtype.Text        `json:"pcode_level"`
+	TownshipName    pgtype.Text        `json:"township_name"`
+	WardVillageName pgtype.Text        `json:"ward_village_name"`
+	SchoolCategory  pgtype.Text        `json:"school_category"`
+}
+
 type Submission struct {
 	ID           uuid.UUID          `json:"id"`
 	AssignmentID uuid.UUID          `json:"assignment_id"`
@@ -73,4 +105,5 @@ type User struct {
 	FullName     string             `json:"full_name"`
 	Role         string             `json:"role"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SchoolID     pgtype.UUID        `json:"school_id"`
 }

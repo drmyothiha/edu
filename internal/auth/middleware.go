@@ -17,9 +17,10 @@ const (
 
 // UserContext holds the authenticated user data stored in request context
 type UserContext struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
-	Role   string    `json:"role"`
+	UserID   uuid.UUID  `json:"user_id"`
+	Email    string     `json:"email"`
+	Role     string     `json:"role"`
+	SchoolID *uuid.UUID `json:"school_id,omitempty"`
 }
 
 // Middleware provides HTTP middleware methods for authentication and authorization
@@ -60,9 +61,10 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		}
 
 		userCtx := &UserContext{
-			UserID: claims.UserID,
-			Email:  claims.Email,
-			Role:   claims.Role,
+			UserID:   claims.UserID,
+			Email:    claims.Email,
+			Role:     claims.Role,
+			SchoolID: claims.SchoolID,
 		}
 
 		ctx := context.WithValue(r.Context(), userContextKey, userCtx)

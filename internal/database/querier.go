@@ -8,45 +8,67 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	CountClassesBySchool(ctx context.Context, schoolID uuid.UUID) (int64, error)
+	CountPCodes(ctx context.Context) (int64, error)
+	CountSchools(ctx context.Context) (int64, error)
+	CountUsersBySchoolAndRole(ctx context.Context, arg CountUsersBySchoolAndRoleParams) (int64, error)
 	CreateAssignment(ctx context.Context, arg CreateAssignmentParams) (Assignment, error)
 	CreateClass(ctx context.Context, arg CreateClassParams) (Class, error)
 	CreateEnrollment(ctx context.Context, arg CreateEnrollmentParams) (ClassEnrollment, error)
 	CreateLessonPlan(ctx context.Context, arg CreateLessonPlanParams) (LessonPlan, error)
-	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreatePCode(ctx context.Context, arg CreatePCodeParams) (MimuPcode, error)
+	CreateSchool(ctx context.Context, arg CreateSchoolParams) (School, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	DeleteAssignment(ctx context.Context, id uuid.UUID) error
 	DeleteClass(ctx context.Context, id uuid.UUID) error
 	DeleteEnrollment(ctx context.Context, arg DeleteEnrollmentParams) error
 	DeleteLessonPlan(ctx context.Context, id uuid.UUID) error
+	DeleteSchool(ctx context.Context, id uuid.UUID) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 	GetAssignmentByID(ctx context.Context, id uuid.UUID) (Assignment, error)
 	GetClassAttendanceRoster(ctx context.Context, arg GetClassAttendanceRosterParams) ([]GetClassAttendanceRosterRow, error)
 	GetClassByID(ctx context.Context, id uuid.UUID) (Class, error)
 	GetLessonPlanByID(ctx context.Context, id uuid.UUID) (LessonPlan, error)
+	GetPCode(ctx context.Context, pcode string) (MimuPcode, error)
+	GetSchoolByCode(ctx context.Context, code string) (School, error)
+	GetSchoolByID(ctx context.Context, id uuid.UUID) (School, error)
 	GetStudentAttendanceSummary(ctx context.Context, studentID uuid.UUID) ([]GetStudentAttendanceSummaryRow, error)
 	GetSubmissionByAssignmentAndStudent(ctx context.Context, arg GetSubmissionByAssignmentAndStudentParams) (Submission, error)
 	GetSubmissionByID(ctx context.Context, id uuid.UUID) (Submission, error)
-	GetUserByEmail(ctx context.Context, email string) (User, error)
-	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	GradeSubmission(ctx context.Context, arg GradeSubmissionParams) (Submission, error)
 	IsStudentEnrolled(ctx context.Context, arg IsStudentEnrolledParams) (bool, error)
 	ListAssignmentsByClassID(ctx context.Context, classID uuid.UUID) ([]Assignment, error)
 	ListAttendanceByClassAndDate(ctx context.Context, arg ListAttendanceByClassAndDateParams) ([]ListAttendanceByClassAndDateRow, error)
 	ListAttendanceByStudentID(ctx context.Context, studentID uuid.UUID) ([]ListAttendanceByStudentIDRow, error)
 	ListClasses(ctx context.Context) ([]Class, error)
+	ListClassesBySchool(ctx context.Context, schoolID uuid.UUID) ([]Class, error)
 	ListClassesByStudentID(ctx context.Context, studentID uuid.UUID) ([]ListClassesByStudentIDRow, error)
 	ListClassesByTeacher(ctx context.Context, teacherID uuid.UUID) ([]Class, error)
 	ListLessonPlansByTeacherID(ctx context.Context, teacherID uuid.UUID) ([]LessonPlan, error)
 	ListPendingAssignmentsByStudentID(ctx context.Context, studentID uuid.UUID) ([]ListPendingAssignmentsByStudentIDRow, error)
+	ListSchools(ctx context.Context) ([]School, error)
+	ListSchoolsByPCodeSR(ctx context.Context, pcodeSr pgtype.Text) ([]School, error)
+	ListSchoolsByPCodeTS(ctx context.Context, pcodeTs pgtype.Text) ([]School, error)
+	ListStateRegions(ctx context.Context) ([]MimuPcode, error)
 	ListStudentsByClassID(ctx context.Context, classID uuid.UUID) ([]ListStudentsByClassIDRow, error)
 	ListSubmissionsByAssignmentID(ctx context.Context, assignmentID uuid.UUID) ([]ListSubmissionsByAssignmentIDRow, error)
 	ListSubmissionsByStudentID(ctx context.Context, studentID uuid.UUID) ([]ListSubmissionsByStudentIDRow, error)
+	ListTownshipsBySR(ctx context.Context, srPcode pgtype.Text) ([]MimuPcode, error)
 	ListUsers(ctx context.Context) ([]ListUsersRow, error)
 	ListUsersByRole(ctx context.Context, role string) ([]ListUsersByRoleRow, error)
+	ListUsersBySchool(ctx context.Context, schoolID pgtype.UUID) ([]ListUsersBySchoolRow, error)
+	ListUsersBySchoolAndRole(ctx context.Context, arg ListUsersBySchoolAndRoleParams) ([]ListUsersBySchoolAndRoleRow, error)
+	ListWardsByTownship(ctx context.Context, tsPcode pgtype.Text) ([]MimuPcode, error)
+	SearchPCodes(ctx context.Context, dollar_1 pgtype.Text) ([]MimuPcode, error)
 	UpdateClass(ctx context.Context, arg UpdateClassParams) (Class, error)
-	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
+	UpdateSchool(ctx context.Context, arg UpdateSchoolParams) (School, error)
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
 	UpsertAttendance(ctx context.Context, arg UpsertAttendanceParams) (AttendanceRecord, error)
 	UpsertSubmission(ctx context.Context, arg UpsertSubmissionParams) (Submission, error)
 }

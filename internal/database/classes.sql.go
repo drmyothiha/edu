@@ -11,10 +11,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const countClassesBySchool = `-- name: CountClassesBySchool :one
+SELECT COUNT(*)::bigint AS total_classes
+FROM classes
+WHERE school_id = $1
+`
+
+func (q *Queries) CountClassesBySchool(ctx context.Context, schoolID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countClassesBySchool, schoolID)
+	var total_classes int64
+	err := row.Scan(&total_classes)
+	return total_classes, err
+}
+
 const createClass = `-- name: CreateClass :one
-INSERT INTO classes (name, grade_level, teacher_id, academic_year)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, grade_level, teacher_id, academic_year, created_at
+INSERT INTO classes (name, grade_level, teacher_id, academic_year, school_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, grade_level, teacher_id, academic_year, created_at, school_id
 `
 
 type CreateClassParams struct {
@@ -22,6 +35,7 @@ type CreateClassParams struct {
 	GradeLevel   string    `json:"grade_level"`
 	TeacherID    uuid.UUID `json:"teacher_id"`
 	AcademicYear string    `json:"academic_year"`
+	SchoolID     uuid.UUID `json:"school_id"`
 }
 
 func (q *Queries) CreateClass(ctx context.Context, arg CreateClassParams) (Class, error) {
@@ -30,6 +44,7 @@ func (q *Queries) CreateClass(ctx context.Context, arg CreateClassParams) (Class
 		arg.GradeLevel,
 		arg.TeacherID,
 		arg.AcademicYear,
+		arg.SchoolID,
 	)
 	var i Class
 	err := row.Scan(
@@ -39,6 +54,7 @@ func (q *Queries) CreateClass(ctx context.Context, arg CreateClassParams) (Class
 		&i.TeacherID,
 		&i.AcademicYear,
 		&i.CreatedAt,
+		&i.SchoolID,
 	)
 	return i, err
 }
@@ -54,7 +70,7 @@ func (q *Queries) DeleteClass(ctx context.Context, id uuid.UUID) error {
 }
 
 const getClassByID = `-- name: GetClassByID :one
-SELECT id, name, grade_level, teacher_id, academic_year, created_at
+SELECT id, name, grade_level, teacher_id, academic_year, created_at, school_id
 FROM classes
 WHERE id = $1
 `
@@ -69,12 +85,13 @@ func (q *Queries) GetClassByID(ctx context.Context, id uuid.UUID) (Class, error)
 		&i.TeacherID,
 		&i.AcademicYear,
 		&i.CreatedAt,
+		&i.SchoolID,
 	)
 	return i, err
 }
 
 const listClasses = `-- name: ListClasses :many
-SELECT id, name, grade_level, teacher_id, academic_year, created_at
+SELECT id, name, grade_level, teacher_id, academic_year, created_at, school_id
 FROM classes
 ORDER BY name ASC
 `
@@ -95,6 +112,42 @@ func (q *Queries) ListClasses(ctx context.Context) ([]Class, error) {
 			&i.TeacherID,
 			&i.AcademicYear,
 			&i.CreatedAt,
+			&i.SchoolID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClassesBySchool = `-- name: ListClassesBySchool :many
+SELECT id, name, grade_level, teacher_id, academic_year, created_at, school_id
+FROM classes
+WHERE school_id = $1
+ORDER BY name ASC
+`
+
+func (q *Queries) ListClassesBySchool(ctx context.Context, schoolID uuid.UUID) ([]Class, error) {
+	rows, err := q.db.Query(ctx, listClassesBySchool, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Class{}
+	for rows.Next() {
+		var i Class
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.GradeLevel,
+			&i.TeacherID,
+			&i.AcademicYear,
+			&i.CreatedAt,
+			&i.SchoolID,
 		); err != nil {
 			return nil, err
 		}
@@ -107,7 +160,7 @@ func (q *Queries) ListClasses(ctx context.Context) ([]Class, error) {
 }
 
 const listClassesByTeacher = `-- name: ListClassesByTeacher :many
-SELECT id, name, grade_level, teacher_id, academic_year, created_at
+SELECT id, name, grade_level, teacher_id, academic_year, created_at, school_id
 FROM classes
 WHERE teacher_id = $1
 ORDER BY name ASC
@@ -129,6 +182,7 @@ func (q *Queries) ListClassesByTeacher(ctx context.Context, teacherID uuid.UUID)
 			&i.TeacherID,
 			&i.AcademicYear,
 			&i.CreatedAt,
+			&i.SchoolID,
 		); err != nil {
 			return nil, err
 		}
@@ -146,7 +200,7 @@ SET name = COALESCE($2, name),
     grade_level = COALESCE($3, grade_level),
     academic_year = COALESCE($4, academic_year)
 WHERE id = $1
-RETURNING id, name, grade_level, teacher_id, academic_year, created_at
+RETURNING id, name, grade_level, teacher_id, academic_year, created_at, school_id
 `
 
 type UpdateClassParams struct {
@@ -171,6 +225,7 @@ func (q *Queries) UpdateClass(ctx context.Context, arg UpdateClassParams) (Class
 		&i.TeacherID,
 		&i.AcademicYear,
 		&i.CreatedAt,
+		&i.SchoolID,
 	)
 	return i, err
 }

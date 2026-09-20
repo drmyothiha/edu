@@ -25,3 +25,8 @@ vendor/
 .vscode/
 *.swp
 *~
+
+# Frontend
+web/node_modules/
+web/dist/
+dist/

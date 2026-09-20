@@ -14,11 +14,12 @@ var (
 	ErrTokenExpired = errors.New("token has expired")
 )
 
-// Claims defines custom claims for authentication
+// Claims defines custom claims for authentication with multi-tenant facility scope
 type Claims struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
-	Role   string    `json:"role"`
+	UserID   uuid.UUID  `json:"user_id"`
+	Email    string     `json:"email"`
+	Role     string     `json:"role"`
+	SchoolID *uuid.UUID `json:"school_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -41,15 +42,21 @@ func NewJWTManager(secretKey string, tokenDuration time.Duration, issuer string)
 	}
 }
 
-// Generate creates a new JWT token for a given user
+// Generate creates a new JWT token without school scope (legacy/backward compatibility)
 func (m *JWTManager) Generate(userID uuid.UUID, email, role string) (string, time.Time, error) {
+	return m.GenerateWithSchool(userID, email, role, nil)
+}
+
+// GenerateWithSchool creates a new JWT token containing tenant school_id and user role
+func (m *JWTManager) GenerateWithSchool(userID uuid.UUID, email, role string, schoolID *uuid.UUID) (string, time.Time, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(m.tokenDuration)
 
 	claims := Claims{
-		UserID: userID,
-		Email:  email,
-		Role:   role,
+		UserID:   userID,
+		Email:    email,
+		Role:     role,
+		SchoolID: schoolID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			Issuer:    m.issuer,

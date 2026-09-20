@@ -66,11 +66,23 @@ func (s *Service) CreateClass(ctx context.Context, teacherID uuid.UUID, req Crea
 		return ClassDTO{}, fmt.Errorf("%w: assigned user must be a teacher or admin", ErrBadRequest)
 	}
 
+	// Multi-tenant: Resolve school_id
+	schoolID := uuid.Nil
+	if req.SchoolID != nil && *req.SchoolID != uuid.Nil {
+		schoolID = *req.SchoolID
+	} else if teacher.SchoolID.Valid {
+		schoolID = uuid.UUID(teacher.SchoolID.Bytes)
+	} else {
+		// fallback to default facility
+		schoolID = uuid.MustParse("a0000000-0000-0000-0000-000000000001")
+	}
+
 	class, err := s.queries.CreateClass(ctx, database.CreateClassParams{
 		Name:         req.Name,
 		GradeLevel:   req.GradeLevel,
 		TeacherID:    targetTeacherID,
 		AcademicYear: req.AcademicYear,
+		SchoolID:     schoolID,
 	})
 	if err != nil {
 		return ClassDTO{}, fmt.Errorf("%w: failed to create class", ErrInternalServer)
@@ -82,8 +94,184 @@ func (s *Service) CreateClass(ctx context.Context, teacherID uuid.UUID, req Crea
 		GradeLevel:   class.GradeLevel,
 		TeacherID:    class.TeacherID,
 		AcademicYear: class.AcademicYear,
+		SchoolID:     class.SchoolID,
 		CreatedAt:    class.CreatedAt.Time,
 	}, nil
+}
+
+func textToPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	s := t.String
+	return &s
+}
+
+func ptrToText(s *string) pgtype.Text {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: strings.TrimSpace(*s), Valid: true}
+}
+
+func schoolModelToDTO(sc database.School) SchoolDTO {
+	return SchoolDTO{
+		ID:              sc.ID,
+		Name:            sc.Name,
+		Code:            sc.Code,
+		Address:         sc.Address,
+		City:            sc.City,
+		Region:          sc.Region,
+		Phone:           sc.Phone,
+		Status:          sc.Status,
+		PCodeSR:         textToPtr(sc.PcodeSr),
+		PCodeTS:         textToPtr(sc.PcodeTs),
+		PCodeWardVT:     textToPtr(sc.PcodeWardVt),
+		PCodeLevel:      textToPtr(sc.PcodeLevel),
+		TownshipName:    textToPtr(sc.TownshipName),
+		WardVillageName: textToPtr(sc.WardVillageName),
+		SchoolCategory:  textToPtr(sc.SchoolCategory),
+		CreatedAt:       sc.CreatedAt.Time,
+	}
+}
+
+func pcodeModelToDTO(p database.MimuPcode) PCodeDTO {
+	return PCodeDTO{
+		PCode:       p.Pcode,
+		ParentPCode: textToPtr(p.ParentPcode),
+		AdminLevel:  int(p.AdminLevel),
+		NameEn:      p.NameEn,
+		NameMy:      p.NameMy,
+		SRPCode:     textToPtr(p.SrPcode),
+		TSPCode:     textToPtr(p.TsPcode),
+		PCodeType:   p.PcodeType,
+	}
+}
+
+// CreateSchool provisions a new school tenant
+func (s *Service) CreateSchool(ctx context.Context, req CreateSchoolRequest) (SchoolDTO, error) {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Code = strings.TrimSpace(strings.ToUpper(req.Code))
+	req.City = strings.TrimSpace(req.City)
+	req.Region = strings.TrimSpace(req.Region)
+
+	// If Code is not provided, auto-generate Option A: {pcode_ward_vt}-{category}01
+	if req.Code == "" && req.PCodeWardVT != nil && *req.PCodeWardVT != "" {
+		cat := "HS"
+		if req.SchoolCategory != nil && *req.SchoolCategory != "" {
+			cat = strings.ToUpper(strings.TrimSpace(*req.SchoolCategory))
+		}
+		req.Code = fmt.Sprintf("%s-%s01", strings.TrimSpace(*req.PCodeWardVT), cat)
+	}
+
+	if req.Name == "" || req.Code == "" || req.City == "" || req.Region == "" {
+		return SchoolDTO{}, fmt.Errorf("%w: name, code, city, and region are required", ErrBadRequest)
+	}
+	status := strings.TrimSpace(strings.ToLower(req.Status))
+	if status == "" {
+		status = "active"
+	}
+
+	school, err := s.queries.CreateSchool(ctx, database.CreateSchoolParams{
+		Name:            req.Name,
+		Code:            req.Code,
+		Address:         strings.TrimSpace(req.Address),
+		City:            req.City,
+		Region:          req.Region,
+		Phone:           strings.TrimSpace(req.Phone),
+		Status:          status,
+		PcodeSr:         ptrToText(req.PCodeSR),
+		PcodeTs:         ptrToText(req.PCodeTS),
+		PcodeWardVt:     ptrToText(req.PCodeWardVT),
+		PcodeLevel:      ptrToText(req.PCodeLevel),
+		TownshipName:    ptrToText(req.TownshipName),
+		WardVillageName: ptrToText(req.WardVillageName),
+		SchoolCategory:  ptrToText(req.SchoolCategory),
+	})
+	if err != nil {
+		return SchoolDTO{}, fmt.Errorf("%w: failed to create school: %v", ErrInternalServer, err)
+	}
+
+	return schoolModelToDTO(school), nil
+}
+
+// GetSchool retrieves a school by ID
+func (s *Service) GetSchool(ctx context.Context, id uuid.UUID) (SchoolDTO, error) {
+	school, err := s.queries.GetSchoolByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SchoolDTO{}, fmt.Errorf("%w: school not found", ErrNotFound)
+		}
+		return SchoolDTO{}, fmt.Errorf("%w: failed to fetch school", ErrInternalServer)
+	}
+
+	return schoolModelToDTO(school), nil
+}
+
+// ListSchools lists all schools (for sysadmin oversight)
+func (s *Service) ListSchools(ctx context.Context) ([]SchoolDTO, error) {
+	schools, err := s.queries.ListSchools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list schools", ErrInternalServer)
+	}
+
+	res := make([]SchoolDTO, 0, len(schools))
+	for _, sc := range schools {
+		res = append(res, schoolModelToDTO(sc))
+	}
+	return res, nil
+}
+
+// ListStateRegions returns all Level 1 State/Regions from MIMU P-Code dataset
+func (s *Service) ListStateRegions(ctx context.Context) ([]PCodeDTO, error) {
+	pcodes, err := s.queries.ListStateRegions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list state/regions", ErrInternalServer)
+	}
+	res := make([]PCodeDTO, 0, len(pcodes))
+	for _, p := range pcodes {
+		res = append(res, pcodeModelToDTO(p))
+	}
+	return res, nil
+}
+
+// ListTownships returns all Level 3 Townships for a State/Region
+func (s *Service) ListTownships(ctx context.Context, srPcode string) ([]PCodeDTO, error) {
+	pcodes, err := s.queries.ListTownshipsBySR(ctx, pgtype.Text{String: srPcode, Valid: srPcode != ""})
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list townships", ErrInternalServer)
+	}
+	res := make([]PCodeDTO, 0, len(pcodes))
+	for _, p := range pcodes {
+		res = append(res, pcodeModelToDTO(p))
+	}
+	return res, nil
+}
+
+// ListWards returns all Level 4 Wards / Village Tracts for a Township
+func (s *Service) ListWards(ctx context.Context, tsPcode string) ([]PCodeDTO, error) {
+	pcodes, err := s.queries.ListWardsByTownship(ctx, pgtype.Text{String: tsPcode, Valid: tsPcode != ""})
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list wards", ErrInternalServer)
+	}
+	res := make([]PCodeDTO, 0, len(pcodes))
+	for _, p := range pcodes {
+		res = append(res, pcodeModelToDTO(p))
+	}
+	return res, nil
+}
+
+// SearchPCodes searches MIMU P-Codes by query string
+func (s *Service) SearchPCodes(ctx context.Context, query string) ([]PCodeDTO, error) {
+	pcodes, err := s.queries.SearchPCodes(ctx, pgtype.Text{String: query, Valid: query != ""})
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to search pcodes", ErrInternalServer)
+	}
+	res := make([]PCodeDTO, 0, len(pcodes))
+	for _, p := range pcodes {
+		res = append(res, pcodeModelToDTO(p))
+	}
+	return res, nil
 }
 
 // GetClass fetches a class by its ID
@@ -102,17 +290,20 @@ func (s *Service) GetClass(ctx context.Context, classID uuid.UUID) (ClassDTO, er
 		GradeLevel:   class.GradeLevel,
 		TeacherID:    class.TeacherID,
 		AcademicYear: class.AcademicYear,
+		SchoolID:     class.SchoolID,
 		CreatedAt:    class.CreatedAt.Time,
 	}, nil
 }
 
-// ListClasses returns all classes or classes taught by a specific teacher
-func (s *Service) ListClasses(ctx context.Context, teacherID *uuid.UUID) ([]ClassDTO, error) {
+// ListClasses returns all classes or classes scoped by school / teacher
+func (s *Service) ListClasses(ctx context.Context, schoolID *uuid.UUID, teacherID *uuid.UUID) ([]ClassDTO, error) {
 	var classes []database.Class
 	var err error
 
 	if teacherID != nil {
 		classes, err = s.queries.ListClassesByTeacher(ctx, *teacherID)
+	} else if schoolID != nil && *schoolID != uuid.Nil {
+		classes, err = s.queries.ListClassesBySchool(ctx, *schoolID)
 	} else {
 		classes, err = s.queries.ListClasses(ctx)
 	}
@@ -129,6 +320,7 @@ func (s *Service) ListClasses(ctx context.Context, teacherID *uuid.UUID) ([]Clas
 			GradeLevel:   c.GradeLevel,
 			TeacherID:    c.TeacherID,
 			AcademicYear: c.AcademicYear,
+			SchoolID:     c.SchoolID,
 			CreatedAt:    c.CreatedAt.Time,
 		})
 	}
