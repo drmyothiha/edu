@@ -8,6 +8,7 @@ import (
 
 	"edu-platform/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // RAGLessonPlanResult packages the complete generated plan and RAG grounding telemetry
@@ -63,7 +64,7 @@ func NewRAGPipeline(
 }
 
 // Execute runs the full 7-step synchronous RAG pipeline
-func (p *RAGPipeline) Execute(ctx context.Context, teacherID uuid.UUID, req LessonPlanPromptRequest) (*RAGLessonPlanResult, error) {
+func (p *RAGPipeline) Execute(ctx context.Context, teacherID uuid.UUID, schoolID *uuid.UUID, req LessonPlanPromptRequest) (*RAGLessonPlanResult, error) {
 	// Step 1: Teacher inputs intent
 	if err := validateRequest(&req); err != nil {
 		return nil, err
@@ -130,8 +131,13 @@ func (p *RAGPipeline) Execute(ctx context.Context, teacherID uuid.UUID, req Less
 	planID := uuid.New()
 
 	if p.querier != nil {
+		var pgSchoolID pgtype.UUID
+		if schoolID != nil {
+			pgSchoolID = pgtype.UUID{Bytes: *schoolID, Valid: true}
+		}
 		createdPlan, err := p.querier.CreateLessonPlan(ctx, database.CreateLessonPlanParams{
 			TeacherID:                teacherID,
+			SchoolID:                 pgSchoolID,
 			Subject:                  req.Subject,
 			GradeLevel:               req.GradeLevel,
 			Topic:                    req.Topic,
@@ -169,7 +175,7 @@ func (p *RAGPipeline) Execute(ctx context.Context, teacherID uuid.UUID, req Less
 }
 
 // ExecuteStream runs the 7-step RAG pipeline streaming real-time events over SSE
-func (p *RAGPipeline) ExecuteStream(ctx context.Context, teacherID uuid.UUID, req LessonPlanPromptRequest, emit SSEEventWriter) (*RAGLessonPlanResult, error) {
+func (p *RAGPipeline) ExecuteStream(ctx context.Context, teacherID uuid.UUID, schoolID *uuid.UUID, req LessonPlanPromptRequest, emit SSEEventWriter) (*RAGLessonPlanResult, error) {
 	// Step 1: Teacher inputs intent
 	if err := validateRequest(&req); err != nil {
 		_ = emit("pipeline_error", map[string]string{"error": err.Error()})
@@ -339,8 +345,13 @@ func (p *RAGPipeline) ExecuteStream(ctx context.Context, teacherID uuid.UUID, re
 
 	planID := uuid.New()
 	if p.querier != nil {
+		var pgSchoolID pgtype.UUID
+		if schoolID != nil {
+			pgSchoolID = pgtype.UUID{Bytes: *schoolID, Valid: true}
+		}
 		createdPlan, err := p.querier.CreateLessonPlan(ctx, database.CreateLessonPlanParams{
 			TeacherID:                teacherID,
+			SchoolID:                 pgSchoolID,
 			Subject:                  req.Subject,
 			GradeLevel:               req.GradeLevel,
 			Topic:                    req.Topic,

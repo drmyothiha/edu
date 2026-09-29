@@ -47,6 +47,8 @@ func (h *Handler) Routes(authMiddleware *auth.Middleware) http.Handler {
 	r.Get("/lesson-plans", h.ListLessonPlans)
 	r.Get("/lesson-plans/{id}", h.GetLessonPlan)
 	r.Get("/lesson-plan/{id}", h.GetLessonPlan)
+	r.Put("/lesson-plans/{id}", h.UpdateLessonPlan)
+	r.Put("/lesson-plan/{id}", h.UpdateLessonPlan)
 	r.Delete("/lesson-plans/{id}", h.DeleteLessonPlan)
 	r.Delete("/lesson-plan/{id}", h.DeleteLessonPlan)
 	r.Post("/lesson-plans/{id}/translate", h.TranslateLessonPlan)
@@ -70,7 +72,7 @@ func (h *Handler) GenerateLessonPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, err := h.service.GenerateLessonPlan(ctx, user.UserID, req)
+	plan, err := h.service.GenerateLessonPlan(ctx, user.UserID, user.SchoolID, req)
 	if err != nil {
 		response.InternalServerError(w, err.Error())
 		return
@@ -131,7 +133,7 @@ func (h *Handler) GenerateLessonPlanStream(w http.ResponseWriter, r *http.Reques
 		return nil
 	}
 
-	_, _ = h.service.GenerateLessonPlanStream(ctx, user.UserID, req, emit)
+	_, _ = h.service.GenerateLessonPlanStream(ctx, user.UserID, user.SchoolID, req, emit)
 }
 
 // ListCurriculum handles GET /api/v1/copilot/curriculum
@@ -165,7 +167,7 @@ func (h *Handler) ListLessonPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plans, err := h.service.ListLessonPlansByTeacher(ctx, user.UserID)
+	plans, err := h.service.ListLessonPlansBySchool(ctx, user.SchoolID, user.UserID)
 	if err != nil {
 		response.InternalServerError(w, err.Error())
 		return
@@ -197,6 +199,45 @@ func (h *Handler) GetLessonPlan(w http.ResponseWriter, r *http.Request) {
 	user, _ := auth.UserFromContext(ctx)
 	if user != nil && user.Role != "admin" && user.Role != "sysadmin" && user.UserID != plan.TeacherID {
 		response.Forbidden(w, "access denied to this lesson plan")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, plan)
+}
+
+// UpdateLessonPlan handles PUT /api/v1/copilot/lesson-plans/{id}
+func (h *Handler) UpdateLessonPlan(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user, ok := auth.UserFromContext(ctx)
+	if !ok || user == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		response.BadRequest(w, "invalid lesson plan ID format")
+		return
+	}
+
+	var req UpdateLessonPlanRequest
+	if err := response.DecodeJSON(r, &req); err != nil {
+		response.BadRequest(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	plan, err := h.service.UpdateLessonPlan(ctx, id, user.UserID, user.Role, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			response.NotFound(w, "lesson plan not found")
+			return
+		}
+		if strings.Contains(err.Error(), "access denied") {
+			response.Forbidden(w, err.Error())
+			return
+		}
+		response.InternalServerError(w, err.Error())
 		return
 	}
 
