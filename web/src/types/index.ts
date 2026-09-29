@@ -346,6 +346,61 @@ export interface StudentOverviewResponse {
   pending_assignments: PendingAssignmentDTO[];
 }
 
+export interface CurriculumChunkDTO {
+  id: string;
+  subject: string;
+  grade_level: string;
+  unit_title: string;
+  topic: string;
+  standard_code: string;
+  competency: string;
+  content_english: string;
+  content_burmese?: string;
+  similarity_score?: number;
+}
+
+export interface PriorLessonPlanSummaryDTO {
+  id: string;
+  subject: string;
+  grade_level: string;
+  topic: string;
+  duration_minutes: number;
+  key_learnings: string;
+  similarity_score: number;
+}
+
+export interface StudentPerformanceSummaryDTO {
+  competency: string;
+  mastery_status: string;
+  benchmark_score: number;
+  at_risk_count: number;
+  pedagogical_need: string;
+}
+
+export interface ValidationReportDTO {
+  overall_score: number;
+  overall_status: 'PASSED' | 'WARNING' | 'FAILED';
+  curriculum_alignment: { score: number; details: string };
+  readability_score: { score: number; details: string };
+  language_safety_filter: { status: string; details: string };
+  timestamp: string;
+}
+
+export interface RAGPipelineStepEventDTO {
+  step: number;
+  name: string;
+  status: 'in_progress' | 'completed' | 'failed';
+  message?: string;
+}
+
+export interface RAGMetadataDTO {
+  retrieved_curriculum_chunks?: CurriculumChunkDTO[];
+  retrieved_prior_plans?: PriorLessonPlanSummaryDTO[];
+  retrieved_student_performance?: StudentPerformanceSummaryDTO[];
+  validation_report?: ValidationReportDTO;
+  bloom_taxonomy_target?: string;
+}
+
 export interface LessonPlanRequest {
   subject: string;
   grade_level: string;
@@ -362,6 +417,7 @@ export interface LessonPlanResponse {
   duration_minutes: number;
   generated_markdown: string;
   generated_markdown_burmese?: string;
+  rag_metadata?: RAGMetadataDTO;
   created_at: string;
 }
 
@@ -626,7 +682,7 @@ export interface CreateAnnouncementRequest {
 export interface NotificationDTO {
   id: string;
   user_id: string;
-  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'general';
+  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'general' | 'lesson_created';
   title: string;
   body: string;
   data: Record<string, any>;

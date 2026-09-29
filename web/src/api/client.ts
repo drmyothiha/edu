@@ -433,13 +433,124 @@ class ApiClient {
         body: JSON.stringify(data),
       }),
 
+    getLessonPlan: (id: string): Promise<LessonPlanResponse> =>
+      this.request<LessonPlanResponse>(`/copilot/lesson-plans/${id}`),
+
     listLessonPlans: (): Promise<LessonPlanResponse[]> =>
       this.request<LessonPlanResponse[]>('/copilot/lesson-plans'),
+
+    deleteLessonPlan: (id: string): Promise<{ message: string; id: string }> =>
+      this.request<{ message: string; id: string }>(`/copilot/lesson-plans/${id}`, {
+        method: 'DELETE',
+      }),
 
     translateLessonPlan: (id: string): Promise<LessonPlanResponse> =>
       this.request<LessonPlanResponse>(`/copilot/lesson-plan/${id}/translate`, {
         method: 'POST',
       }),
+
+    streamLessonPlan: async (
+      data: LessonPlanRequest,
+      onEvent: (eventType: string, data: any) => void,
+      signal?: AbortSignal
+    ): Promise<LessonPlanResponse> => {
+      const base = getApiBase();
+      const url = `${base}/copilot/lesson-plan/stream`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      };
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(data),
+        signal,
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = (await response.json()) as ApiError;
+          if (errorData && errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+          // use default fallback
+        }
+        throw new ApiClientError(errorMessage, response.status);
+      }
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported by browser/environment');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalPlan: LessonPlanResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let currentEvent = 'message';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              const parsedData = JSON.parse(dataStr);
+              onEvent(currentEvent, parsedData);
+              if (currentEvent === 'complete') {
+                finalPlan = parsedData as LessonPlanResponse;
+              }
+            } catch {
+              // Ignore non-JSON lines or partial chunks
+            }
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const lines = buffer.split('\n');
+        let currentEvent = 'message';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              const parsedData = JSON.parse(dataStr);
+              onEvent(currentEvent, parsedData);
+              if (currentEvent === 'complete') {
+                finalPlan = parsedData as LessonPlanResponse;
+              }
+            } catch {
+              // Ignore non-JSON lines
+            }
+          }
+        }
+      }
+
+      if (!finalPlan) {
+        throw new Error('Stream completed without receiving final lesson plan response');
+      }
+
+      return finalPlan;
+    },
   };
 
   // Direct Teacher-Parent Messaging & Chat
