@@ -2,26 +2,49 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"edu-platform/internal/auth"
 	"edu-platform/internal/config"
 	"edu-platform/internal/database"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type scrapedSchool struct {
+	Name           string `json:"name"`
+	NameEn         string `json:"name_en"`
+	NameMy         string `json:"name_my"`
+	Code           string `json:"code"`
+	Address        string `json:"address"`
+	City           string `json:"city"`
+	Region         string `json:"region"`
+	Phone          string `json:"phone"`
+	Status         string `json:"status"`
+	PcodeSr        string `json:"pcode_sr"`
+	PcodeTs        string `json:"pcode_ts"`
+	PcodeLevel     string `json:"pcode_level"`
+	TownshipName   string `json:"township_name"`
+	WardVillage    string `json:"ward_village_name"`
+	SchoolCategory string `json:"school_category"`
+}
+
 type pcodeItem struct {
-	PCode       string
-	ParentPCode string
-	AdminLevel  int32
-	NameEn      string
-	NameMy      string
-	SRPCode     string
-	TSPCode     string
-	PCodeType   string
+	PCode       string `json:"pcode"`
+	ParentPCode string `json:"parent_pcode"`
+	AdminLevel  int32  `json:"admin_level"`
+	NameEn      string `json:"name_en"`
+	NameMy      string `json:"name_my"`
+	SRPCode     string `json:"sr_pcode"`
+	TSPCode     string `json:"ts_pcode"`
+	PCodeType   string `json:"pcode_type"`
 }
 
 func main() {
@@ -44,9 +67,12 @@ func main() {
 
 	// 1. Seed Nationwide Myanmar MIMU P-Code Dataset
 	log.Println("Seeding complete Myanmar MIMU Administrative Divisions (States/Regions & Townships)...")
-	seedMyanmarPCodes(ctx, queries)
+	seedMyanmarPCodes(ctx, pool, queries)
 
-	// 2. Seed Well-Known Prestigious Schools using Option A: {pcode_ward_vt}-{category}{seq}
+	// 2. Seed All Nationwide Schools from schools_with_pcodes.json (1,686 schools)
+	seedAllNationwideSchools(ctx, pool)
+
+	// 3. Seed Well-Known Prestigious Schools using Option A: {pcode_ward_vt}-{category}{seq}
 	log.Println("Seeding well-known schools across Myanmar with MIMU Option A codes...")
 
 	// Yangon: Yangon Academy (Private)
@@ -70,7 +96,7 @@ func main() {
 	// Yangon: BEHS 1 Dagon (Historical High School)
 	behs1Dagon := seedSchool(ctx, queries, database.CreateSchoolParams{
 		Name:            "Basic Education High School No. 1 Dagon (အ.ထ.က ၁ ဒဂုံ)",
-		Code:            "MMR013001001-HS01",
+		Code:            "MMR013001001-BEHS01",
 		Address:         "Corner of Commissioner Road & Shwedagon Pagoda Road",
 		City:            "Yangon",
 		Region:          "Yangon Region",
@@ -82,13 +108,13 @@ func main() {
 		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
 		TownshipName:    pgtype.Text{String: "Dagon", Valid: true},
 		WardVillageName: pgtype.Text{String: "Ward 1", Valid: true},
-		SchoolCategory:  pgtype.Text{String: "HS", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "BEHS", Valid: true},
 	})
 
-	// Yangon: BEHS 2 Kamayut (St. Augustine)
-	behs2Kamayut := seedSchool(ctx, queries, database.CreateSchoolParams{
-		Name:            "Basic Education High School No. 2 Kamayut (အ.ထ.က ၂ ကမာရွတ်)",
-		Code:            "MMR013003002-HS02",
+	// Yangon: BEHS Branch Kamayut (အ.ထ.က (ခွဲ))
+	behsBrKamayut := seedSchool(ctx, queries, database.CreateSchoolParams{
+		Name:            "Basic Education High School (Branch) No. 2 Kamayut (အ.ထ.က (ခွဲ) ၂ ကမာရွတ်)",
+		Code:            "MMR013003002-BEHS-BR01",
 		Address:         "Insein Road, Kamayut Township",
 		City:            "Yangon",
 		Region:          "Yangon Region",
@@ -100,13 +126,67 @@ func main() {
 		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
 		TownshipName:    pgtype.Text{String: "Kamayut", Valid: true},
 		WardVillageName: pgtype.Text{String: "Ward 2", Valid: true},
-		SchoolCategory:  pgtype.Text{String: "HS", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "BEHS-BR", Valid: true},
+	})
+
+	// Yangon: University of Information Technology (UIT)
+	uitYangon := seedSchool(ctx, queries, database.CreateSchoolParams{
+		Name:            "University of Information Technology (UIT - သတင်းအချက်အလက်နည်းပညာတက္ကသိုလ်)",
+		Code:            "MMR013008001-UIT01",
+		Address:         "Parami Road, Hlaing Campus",
+		City:            "Yangon",
+		Region:          "Yangon Region",
+		Phone:           "+95 1 966 4254",
+		Status:          "active",
+		PcodeSr:         pgtype.Text{String: "MMR013", Valid: true},
+		PcodeTs:         pgtype.Text{String: "MMR013008", Valid: true},
+		PcodeWardVt:     pgtype.Text{String: "MMR013008001", Valid: true},
+		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
+		TownshipName:    pgtype.Text{String: "Hlaing", Valid: true},
+		WardVillageName: pgtype.Text{String: "Hlaing Ward 1", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "UIT", Valid: true},
+	})
+
+	// Yangon: University of Computer Studies, Yangon (UCSY)
+	ucsyYangon := seedSchool(ctx, queries, database.CreateSchoolParams{
+		Name:            "University of Computer Studies, Yangon (UCSY - ရန်ကုန်ကွန်ပျူတာတက္ကသိုလ်)",
+		Code:            "MMR013005001-UCSY01",
+		Address:         "Shwe Pyi Thar Township, Yangon",
+		City:            "Yangon",
+		Region:          "Yangon Region",
+		Phone:           "+95 1 610 655",
+		Status:          "active",
+		PcodeSr:         pgtype.Text{String: "MMR013", Valid: true},
+		PcodeTs:         pgtype.Text{String: "MMR013005", Valid: true},
+		PcodeWardVt:     pgtype.Text{String: "MMR013005001", Valid: true},
+		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
+		TownshipName:    pgtype.Text{String: "Shwepyithar", Valid: true},
+		WardVillageName: pgtype.Text{String: "Ward 1", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "UCSY", Valid: true},
+	})
+
+	// Yangon: Yangon Technological University (YTU)
+	ytuYangon := seedSchool(ctx, queries, database.CreateSchoolParams{
+		Name:            "Yangon Technological University (YTU - ရန်ကုန်နည်းပညာတက္ကသိုလ်)",
+		Code:            "MMR013006001-YTU01",
+		Address:         "Gyogone, Insein Township",
+		City:            "Yangon",
+		Region:          "Yangon Region",
+		Phone:           "+95 1 664 280",
+		Status:          "active",
+		PcodeSr:         pgtype.Text{String: "MMR013", Valid: true},
+		PcodeTs:         pgtype.Text{String: "MMR013006", Valid: true},
+		PcodeWardVt:     pgtype.Text{String: "MMR013006001", Valid: true},
+		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
+		TownshipName:    pgtype.Text{String: "Insein", Valid: true},
+		WardVillageName: pgtype.Text{String: "Gyogone", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "YTU", Valid: true},
 	})
 
 	// Mandalay: BEHS 16 Mandalay
 	behs16Mdy := seedSchool(ctx, queries, database.CreateSchoolParams{
 		Name:            "Basic Education High School No. 16 Mandalay (အ.ထ.က ၁၆ မန္တလေး)",
-		Code:            "MMR009002004-HS16",
+		Code:            "MMR009002004-BEHS16",
 		Address:         "78th Street, Chanayethazan Township",
 		City:            "Mandalay",
 		Region:          "Mandalay Region",
@@ -118,7 +198,7 @@ func main() {
 		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
 		TownshipName:    pgtype.Text{String: "Chanayethazan", Valid: true},
 		WardVillageName: pgtype.Text{String: "Ward 4", Valid: true},
-		SchoolCategory:  pgtype.Text{String: "HS", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "BEHS", Valid: true},
 	})
 
 	// Mandalay: Mandalay Science & Tech Institute
@@ -160,7 +240,7 @@ func main() {
 	// Nay Pyi Taw: BEHS 1 Zabuthiri
 	behs1Npt := seedSchool(ctx, queries, database.CreateSchoolParams{
 		Name:            "Basic Education High School No. 1 Zabuthiri (အ.ထ.က ၁ ဇမ္ဗူသီရိ)",
-		Code:            "MMR018001001-HS01",
+		Code:            "MMR018001001-BEHS01",
 		Address:         "Thiri Yadanar Market Road, Zabuthiri Township",
 		City:            "Nay Pyi Taw",
 		Region:          "Nay Pyi Taw Union Territory",
@@ -172,14 +252,16 @@ func main() {
 		PcodeLevel:      pgtype.Text{String: "ward", Valid: true},
 		TownshipName:    pgtype.Text{String: "Zabuthiri", Valid: true},
 		WardVillageName: pgtype.Text{String: "Thiri Ward", Valid: true},
-		SchoolCategory:  pgtype.Text{String: "HS", Valid: true},
+		SchoolCategory:  pgtype.Text{String: "BEHS", Valid: true},
 	})
 
-	log.Printf("Schools ready with Option A P-Codes: %s (%s), %s (%s), %s (%s), %s (%s)",
+	log.Printf("Schools ready with Option A P-Codes: %s (%s), %s (%s), %s (%s), %s (%s), %s (%s), %s (%s)",
 		ygnAcademy.Name, ygnAcademy.Code,
 		behs1Dagon.Name, behs1Dagon.Code,
-		behs16Mdy.Name, behs16Mdy.Code,
-		behs1Npt.Name, behs1Npt.Code,
+		behsBrKamayut.Name, behsBrKamayut.Code,
+		uitYangon.Name, uitYangon.Code,
+		ucsyYangon.Name, ucsyYangon.Code,
+		ytuYangon.Name, ytuYangon.Code,
 	)
 
 	ygnSchoolUUID := pgtype.UUID{Bytes: [16]byte(ygnAcademy.ID), Valid: true}
@@ -189,11 +271,12 @@ func main() {
 
 	// 3. User Accounts (Nationwide Hubs: Yangon, Mandalay, Shan, Nay Pyi Taw)
 	log.Println("Seeding role-based user hierarchy for key nationwide educational hubs...")
-	sysAdminHash, _ := auth.HashPassword("SysAdmin123!")
-	schoolAdminHash, _ := auth.HashPassword("Admin123!")
-	teacherHash, _ := auth.HashPassword("Teacher123!")
-	studentHash, _ := auth.HashPassword("Student123!")
-	parentHash, _ := auth.HashPassword("Parent123!")
+	mthHash, _ := auth.HashPassword("mth")
+	sysAdminHash := mthHash
+	schoolAdminHash := mthHash
+	teacherHash := mthHash
+	studentHash := mthHash
+	parentHash := mthHash
 
 	// Global Platform Owner (Sysadmin)
 	sysadmin := seedUser(ctx, queries, database.CreateUserParams{
@@ -339,6 +422,53 @@ func main() {
 		}
 	}
 
+	// Seed Standard Campus Classes & Sections (KG, Grade 1 to Grade 12, Sections A & B) for key schools
+	log.Println("Seeding standard Campus Classes & Sections (KG, Grade 1 to Grade 12, Sections A & B) strictly under school facilities...")
+	schoolsToSeed := []struct {
+		schoolID  uuid.UUID
+		teacherID uuid.UUID
+	}{
+		{ygnAcademy.ID, teacherSmith.ID},
+		{behs1Dagon.ID, teacherSmith.ID},
+		{behsBrKamayut.ID, teacherSmith.ID},
+		{uitYangon.ID, teacherSmith.ID},
+		{ucsyYangon.ID, teacherSmith.ID},
+		{ytuYangon.ID, teacherSmith.ID},
+		{behs16Mdy.ID, teacherJohnson.ID},
+		{mdyTech.ID, teacherJohnson.ID},
+		{tgiHigh.ID, tgiAdmin.ID},
+		{behs1Npt.ID, teacherAung.ID},
+		{uuid.MustParse("a0000000-0000-0000-0000-000000000001"), teacherSmith.ID},
+	}
+	if ygnAdmin.SchoolID.Valid {
+		schoolsToSeed = append(schoolsToSeed, struct {
+			schoolID  uuid.UUID
+			teacherID uuid.UUID
+		}{uuid.UUID(ygnAdmin.SchoolID.Bytes), ygnAdmin.ID})
+	}
+	if mdyAdmin.SchoolID.Valid {
+		schoolsToSeed = append(schoolsToSeed, struct {
+			schoolID  uuid.UUID
+			teacherID uuid.UUID
+		}{uuid.UUID(mdyAdmin.SchoolID.Bytes), mdyAdmin.ID})
+	}
+	if tgiAdmin.SchoolID.Valid {
+		schoolsToSeed = append(schoolsToSeed, struct {
+			schoolID  uuid.UUID
+			teacherID uuid.UUID
+		}{uuid.UUID(tgiAdmin.SchoolID.Bytes), tgiAdmin.ID})
+	}
+	if nptAdmin.SchoolID.Valid {
+		schoolsToSeed = append(schoolsToSeed, struct {
+			schoolID  uuid.UUID
+			teacherID uuid.UUID
+		}{uuid.UUID(nptAdmin.SchoolID.Bytes), nptAdmin.ID})
+	}
+
+	for _, item := range schoolsToSeed {
+		seedDefaultK12ClassesForSchool(ctx, queries, item.schoolID, item.teacherID)
+	}
+
 	// 5. Enrollments & Attendance
 	_, _ = queries.CreateEnrollment(ctx, database.CreateEnrollmentParams{ClassID: mathClass.ID, StudentID: studentAlice.ID})
 	_, _ = queries.CreateEnrollment(ctx, database.CreateEnrollmentParams{ClassID: mathClass.ID, StudentID: studentBob.ID})
@@ -384,11 +514,14 @@ func main() {
 	fmt.Println("\nPrestigious Well-Known Schools (Option A P-Codes):")
 	fmt.Printf("  1. %s [%s] - %s, %s\n", ygnAcademy.Name, ygnAcademy.Code, ygnAcademy.City, ygnAcademy.Region)
 	fmt.Printf("  2. %s [%s] - %s, %s\n", behs1Dagon.Name, behs1Dagon.Code, behs1Dagon.City, behs1Dagon.Region)
-	fmt.Printf("  3. %s [%s] - %s, %s\n", behs2Kamayut.Name, behs2Kamayut.Code, behs2Kamayut.City, behs2Kamayut.Region)
-	fmt.Printf("  4. %s [%s] - %s, %s\n", behs16Mdy.Name, behs16Mdy.Code, behs16Mdy.City, behs16Mdy.Region)
-	fmt.Printf("  5. %s [%s] - %s, %s\n", mdyTech.Name, mdyTech.Code, mdyTech.City, mdyTech.Region)
-	fmt.Printf("  6. %s [%s] - %s, %s\n", tgiHigh.Name, tgiHigh.Code, tgiHigh.City, tgiHigh.Region)
-	fmt.Printf("  7. %s [%s] - %s, %s\n", behs1Npt.Name, behs1Npt.Code, behs1Npt.City, behs1Npt.Region)
+	fmt.Printf("  3. %s [%s] - %s, %s\n", behsBrKamayut.Name, behsBrKamayut.Code, behsBrKamayut.City, behsBrKamayut.Region)
+	fmt.Printf("  4. %s [%s] - %s, %s\n", uitYangon.Name, uitYangon.Code, uitYangon.City, uitYangon.Region)
+	fmt.Printf("  5. %s [%s] - %s, %s\n", ucsyYangon.Name, ucsyYangon.Code, ucsyYangon.City, ucsyYangon.Region)
+	fmt.Printf("  6. %s [%s] - %s, %s\n", ytuYangon.Name, ytuYangon.Code, ytuYangon.City, ytuYangon.Region)
+	fmt.Printf("  7. %s [%s] - %s, %s\n", behs16Mdy.Name, behs16Mdy.Code, behs16Mdy.City, behs16Mdy.Region)
+	fmt.Printf("  8. %s [%s] - %s, %s\n", mdyTech.Name, mdyTech.Code, mdyTech.City, mdyTech.Region)
+	fmt.Printf("  9. %s [%s] - %s, %s\n", tgiHigh.Name, tgiHigh.Code, tgiHigh.City, tgiHigh.Region)
+	fmt.Printf("  10. %s [%s] - %s, %s\n", behs1Npt.Name, behs1Npt.Code, behs1Npt.City, behs1Npt.Region)
 	fmt.Println("\nKey Regional Hub Accounts:")
 	fmt.Println("  [SysAdmin]    sysadmin@edu.local / SysAdmin123!   (Nationwide Platform Oversight)")
 	fmt.Println("  [SchoolAdmin] admin.ygn@edu.local / Admin123!     (Yangon Academy Principal)")
@@ -417,6 +550,53 @@ func seedSchool(ctx context.Context, queries *database.Queries, params database.
 	return database.School{}
 }
 
+func seedDefaultK12ClassesForSchool(ctx context.Context, queries *database.Queries, schoolID uuid.UUID, teacherID uuid.UUID) {
+	if schoolID == uuid.Nil || teacherID == uuid.Nil {
+		return
+	}
+	grades := []string{
+		"KG",
+		"Grade 1",
+		"Grade 2",
+		"Grade 3",
+		"Grade 4",
+		"Grade 5",
+		"Grade 6",
+		"Grade 7",
+		"Grade 8",
+		"Grade 9",
+		"Grade 10",
+		"Grade 11",
+		"Grade 12",
+	}
+	sections := []string{"Section A", "Section B"}
+
+	existingClasses, _ := queries.ListClassesBySchool(ctx, schoolID)
+	existingMap := make(map[string]bool)
+	for _, c := range existingClasses {
+		existingMap[c.GradeLevel+"::"+c.Name] = true
+	}
+
+	for _, g := range grades {
+		for _, s := range sections {
+			name := fmt.Sprintf("%s - %s", g, s)
+			if existingMap[g+"::"+name] {
+				continue
+			}
+			_, err := queries.CreateClass(ctx, database.CreateClassParams{
+				Name:         name,
+				GradeLevel:   g,
+				TeacherID:    teacherID,
+				AcademicYear: "2026-2027",
+				SchoolID:     schoolID,
+			})
+			if err != nil {
+				log.Printf("Notice: skipping duplicate class %s: %v", name, err)
+			}
+		}
+	}
+}
+
 func seedUser(ctx context.Context, queries *database.Queries, params database.CreateUserParams) database.CreateUserRow {
 	u, err := queries.CreateUser(ctx, params)
 	if err == nil {
@@ -437,7 +617,78 @@ func seedUser(ctx context.Context, queries *database.Queries, params database.Cr
 	}
 }
 
-func seedMyanmarPCodes(ctx context.Context, queries *database.Queries) {
+func seedMyanmarPCodes(ctx context.Context, pool *pgxpool.Pool, queries *database.Queries) {
+	paths := []string{
+		"mimu_pcodes.json",
+		"../mimu_pcodes.json",
+		"../../mimu_pcodes.json",
+	}
+
+	var data []byte
+	var err error
+	for _, p := range paths {
+		data, err = os.ReadFile(p)
+		if err == nil {
+			log.Printf("Found MIMU PCodes dataset at %s (%d bytes)", p, len(data))
+			break
+		}
+	}
+
+	if err == nil && len(data) > 0 {
+		var fullItems []pcodeItem
+		if err := json.Unmarshal(data, &fullItems); err == nil && len(fullItems) > 0 {
+			log.Printf("Seeding %d MIMU Place Codes from official MIMU dataset...", len(fullItems))
+			query := `
+			INSERT INTO mimu_pcodes (
+				pcode, parent_pcode, admin_level, name_en, name_my, sr_pcode, ts_pcode, pcode_type
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (pcode) DO UPDATE SET
+				name_en = EXCLUDED.name_en,
+				name_my = EXCLUDED.name_my,
+				parent_pcode = EXCLUDED.parent_pcode,
+				admin_level = EXCLUDED.admin_level,
+				sr_pcode = EXCLUDED.sr_pcode,
+				ts_pcode = EXCLUDED.ts_pcode,
+				pcode_type = EXCLUDED.pcode_type;
+			`
+			batch := &pgx.Batch{}
+			count := 0
+			for _, item := range fullItems {
+				var parentPCode, srPCode, tsPCode interface{}
+				if item.ParentPCode != "" {
+					parentPCode = item.ParentPCode
+				}
+				if item.SRPCode != "" {
+					srPCode = item.SRPCode
+				}
+				if item.TSPCode != "" {
+					tsPCode = item.TSPCode
+				}
+				batch.Queue(query,
+					item.PCode, parentPCode, item.AdminLevel,
+					item.NameEn, item.NameMy, srPCode, tsPCode, item.PCodeType,
+				)
+				count++
+				if batch.Len() >= 500 {
+					br := pool.SendBatch(ctx, batch)
+					if err := br.Close(); err != nil {
+						log.Printf("Warning: batch insert error: %v", err)
+					}
+					batch = &pgx.Batch{}
+				}
+			}
+			if batch.Len() > 0 {
+				br := pool.SendBatch(ctx, batch)
+				if err := br.Close(); err != nil {
+					log.Printf("Warning: final batch error: %v", err)
+				}
+			}
+			log.Printf("Successfully synchronized %d nationwide MIMU Place Codes into database.", count)
+			return
+		}
+	}
+
 	items := []pcodeItem{
 		// Level 1: All 15 States & Regions of Myanmar
 		{PCode: "MMR001", AdminLevel: 1, NameEn: "Kachin State", NameMy: "ကချင်ပြည်နယ်", PCodeType: "state_region"},
@@ -538,3 +789,89 @@ func seedMyanmarPCodes(ctx context.Context, queries *database.Queries) {
 		}
 	}
 }
+
+func seedAllNationwideSchools(ctx context.Context, pool *pgxpool.Pool) {
+	paths := []string{
+		"schools_with_pcodes.json",
+		"../schools_with_pcodes.json",
+		"../../schools_with_pcodes.json",
+	}
+
+	var data []byte
+	var err error
+	for _, p := range paths {
+		data, err = os.ReadFile(p)
+		if err == nil {
+			log.Printf("Found nationwide school dataset at %s", p)
+			break
+		}
+	}
+	if err != nil {
+		log.Printf("Notice: schools_with_pcodes.json not found, skipping nationwide bulk seed")
+		return
+	}
+
+	var schools []scrapedSchool
+	if err := json.Unmarshal(data, &schools); err != nil {
+		log.Printf("Warning: failed to parse schools_with_pcodes.json: %v", err)
+		return
+	}
+
+	log.Printf("Seeding %d nationwide schools from schools_with_pcodes.json...", len(schools))
+
+	query := `
+	INSERT INTO schools (
+		name, code, address, city, region, phone, status,
+		pcode_sr, pcode_ts, pcode_level, township_name, ward_village_name, school_category,
+		name_en, name_my
+	)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	ON CONFLICT (code) DO UPDATE SET
+		name = EXCLUDED.name,
+		name_en = EXCLUDED.name_en,
+		name_my = EXCLUDED.name_my,
+		address = EXCLUDED.address,
+		city = EXCLUDED.city,
+		region = EXCLUDED.region,
+		phone = EXCLUDED.phone,
+		status = EXCLUDED.status,
+		pcode_sr = EXCLUDED.pcode_sr,
+		pcode_ts = EXCLUDED.pcode_ts,
+		pcode_level = EXCLUDED.pcode_level,
+		township_name = EXCLUDED.township_name,
+		ward_village_name = EXCLUDED.ward_village_name,
+		school_category = EXCLUDED.school_category;
+	`
+
+	batch := &pgx.Batch{}
+	count := 0
+	for _, s := range schools {
+		nameVal := s.Name
+		if s.NameMy != "" {
+			nameVal = s.NameMy
+		}
+		batch.Queue(query,
+			nameVal, s.Code, s.Address, s.City, s.Region, s.Phone, s.Status,
+			s.PcodeSr, s.PcodeTs, s.PcodeLevel, s.TownshipName, s.WardVillage, s.SchoolCategory,
+			s.NameEn, s.NameMy,
+		)
+		count++
+		if batch.Len() >= 200 {
+			br := pool.SendBatch(ctx, batch)
+			if err := br.Close(); err != nil {
+				log.Printf("Warning: batch insert error: %v", err)
+			}
+			batch = &pgx.Batch{}
+		}
+	}
+
+	if batch.Len() > 0 {
+		br := pool.SendBatch(ctx, batch)
+		if err := br.Close(); err != nil {
+			log.Printf("Warning: final batch error: %v", err)
+		}
+	}
+
+	log.Printf("Successfully synchronized %d nationwide schools into database.", count)
+}
+

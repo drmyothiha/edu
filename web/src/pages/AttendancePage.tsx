@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
-import { AttendanceStatus, AttendanceRosterItem, ClassDTO } from '../types';
+import { AttendanceStatus, AttendanceRosterItem, ClassDTO, WholeChildProfileDTO } from '../types';
+import { WholeChildMatrix } from '../components/WholeChildMatrix';
 import {
   CalendarCheck,
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   CheckCheck,
   AlertCircle,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 
 export const AttendancePage: React.FC = () => {
@@ -23,8 +25,10 @@ export const AttendancePage: React.FC = () => {
     return new Date().toISOString().split('T')[0];
   });
 
+  const [activeTab, setActiveTab] = useState<'daily' | 'whole_child'>('daily');
   const [roster, setRoster] = useState<AttendanceRosterItem[]>([]);
   const [attendanceMap, setAttendanceMap] = useState<Record<string, { status: AttendanceStatus; notes: string }>>({});
+  const [wholeChildProfiles, setWholeChildProfiles] = useState<WholeChildProfileDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +65,19 @@ export const AttendancePage: React.FC = () => {
     }
   };
 
+  const fetchWholeChildProfiles = async () => {
+    if (!classId) return;
+    try {
+      const profiles = await api.classes.getWholeChildProfiles(classId, '2026-10');
+      setWholeChildProfiles(profiles);
+    } catch (err: any) {
+      console.warn('Failed to load Whole-Child profiles:', err);
+    }
+  };
+
   useEffect(() => {
     fetchRoster();
+    fetchWholeChildProfiles();
   }, [classId, selectedDate]);
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
@@ -159,33 +174,78 @@ export const AttendancePage: React.FC = () => {
         </div>
 
         {/* Date Selector & Save Button */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-300 shadow-sm">
-            <span className="text-xs font-bold text-slate-600">Date:</span>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-xs text-slate-900 font-semibold focus:outline-none bg-transparent cursor-pointer"
-            />
-          </div>
+        {activeTab === 'daily' && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-300 shadow-sm">
+              <span className="text-xs font-bold text-slate-600">Date:</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="text-xs text-slate-900 font-semibold focus:outline-none bg-transparent cursor-pointer"
+              />
+            </div>
 
-          <button
-            onClick={handleSave}
-            disabled={saving || loading || roster.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow transition disabled:opacity-50"
-          >
-            {saving ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save Attendance
-          </button>
-        </div>
+            <button
+              onClick={handleSave}
+              disabled={saving || loading || roster.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow transition disabled:opacity-50"
+            >
+              {saving ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Save Attendance
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Feedback alerts */}
+      {/* View Mode Tabs: Daily Roster vs Whole-Child Development Hub */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveTab('daily')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+            activeTab === 'daily'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <CalendarCheck className="h-4 w-4" />
+          Daily Attendance Roster (နေ့စဥ် တက်ရောက်မှု)
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('whole_child')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+            activeTab === 'whole_child'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <Sparkles className="h-4 w-4 text-amber-300" />
+          Whole-Child Development & Offline Sync (ဘက်စုံဖွံ့ဖြိုးမှု စံနှုန်းများ)
+          {wholeChildProfiles.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-mono">
+              {wholeChildProfiles.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'whole_child' ? (
+        <WholeChildMatrix
+          profiles={wholeChildProfiles}
+          classId={classId}
+          className={classInfo?.name}
+          onRefresh={fetchWholeChildProfiles}
+        />
+      ) : (
+        <>
+          {/* Feedback alerts */}
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-medium text-rose-800 flex items-center gap-2">
           <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
@@ -335,6 +395,9 @@ export const AttendancePage: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 };
+

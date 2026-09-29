@@ -10,7 +10,15 @@ import { AttendancePage } from './pages/AttendancePage';
 import { AssignmentsPage } from './pages/AssignmentsPage';
 import { SysadminDashboard } from './pages/SysadminDashboard';
 import { SchoolAdminDashboard } from './pages/SchoolAdminDashboard';
+import { SchoolTeachersPage } from './pages/SchoolTeachersPage';
+import { SchoolStudentsPage } from './pages/SchoolStudentsPage';
+import { SchoolStudentDetailPage } from './pages/SchoolStudentDetailPage';
+import { ClassExamMarksPage } from './pages/ClassExamMarksPage';
+import { SchoolTimetablePage } from './pages/SchoolTimetablePage';
 import { ParentStudentView } from './pages/ParentStudentView';
+import { VerifyCredentialPage } from './pages/VerifyCredentialPage';
+import { GateKioskPage } from './pages/GateKioskPage';
+import { SchoolAdminProfilePage } from './pages/SchoolAdminProfilePage';
 
 const HomeRedirect: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -27,10 +35,12 @@ const HomeRedirect: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <BrowserRouter basename="/edu">
+      <BrowserRouter>
         <Routes>
-          {/* Public Login Route */}
+          {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/verify" element={<VerifyCredentialPage />} />
+          <Route path="/gate-kiosk" element={<GateKioskPage />} />
 
           {/* Root Redirect based on user state & role */}
           <Route path="/" element={<HomeRedirect />} />
@@ -59,6 +69,12 @@ export const App: React.FC = () => {
           >
             <Route index element={<SchoolAdminDashboard />} />
             <Route path="classes" element={<SchoolAdminDashboard />} />
+            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
+            <Route path="timetable" element={<SchoolTimetablePage />} />
+            <Route path="teachers" element={<SchoolTeachersPage />} />
+            <Route path="students" element={<SchoolStudentsPage />} />
+            <Route path="students/:id" element={<SchoolStudentDetailPage />} />
+            <Route path="profile" element={<SchoolAdminProfilePage />} />
           </Route>
 
           {/* Legacy /admin redirect/route */}
@@ -72,6 +88,12 @@ export const App: React.FC = () => {
           >
             <Route index element={<SchoolAdminDashboard />} />
             <Route path="classes" element={<SchoolAdminDashboard />} />
+            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
+            <Route path="timetable" element={<SchoolTimetablePage />} />
+            <Route path="teachers" element={<SchoolTeachersPage />} />
+            <Route path="students" element={<SchoolStudentsPage />} />
+            <Route path="students/:id" element={<SchoolStudentDetailPage />} />
+            <Route path="profile" element={<SchoolAdminProfilePage />} />
           </Route>
 
           {/* Teacher Routes */}
@@ -85,8 +107,11 @@ export const App: React.FC = () => {
           >
             <Route index element={<TeacherDashboard />} />
             <Route path="copilot" element={<CopilotPage />} />
+            <Route path="timetable" element={<SchoolTimetablePage />} />
+            <Route path="classes/:id/timetable" element={<SchoolTimetablePage />} />
             <Route path="classes/:id/attendance" element={<AttendancePage />} />
             <Route path="classes/:id/assignments" element={<AssignmentsPage />} />
+            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
           </Route>
 
           {/* Parent / Student Progress Route */}

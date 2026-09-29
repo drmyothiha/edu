@@ -37,20 +37,20 @@ func NewMiddleware(jwtManager *JWTManager) *Middleware {
 func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			response.Unauthorized(w, "missing authorization header")
-			return
+		var tokenStr string
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+				response.Unauthorized(w, "invalid authorization header format, expected 'Bearer <token>'")
+				return
+			}
+			tokenStr = strings.TrimSpace(parts[1])
+		} else if qToken := r.URL.Query().Get("token"); qToken != "" {
+			tokenStr = strings.TrimSpace(qToken)
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			response.Unauthorized(w, "invalid authorization header format, expected 'Bearer <token>'")
-			return
-		}
-
-		tokenStr := strings.TrimSpace(parts[1])
 		if tokenStr == "" {
-			response.Unauthorized(w, "token is empty")
+			response.Unauthorized(w, "missing authorization token")
 			return
 		}
 
@@ -111,3 +111,9 @@ func MustUserFromContext(ctx context.Context) *UserContext {
 	}
 	return u
 }
+
+// ContextWithUser returns a new context with the given UserContext attached
+func ContextWithUser(ctx context.Context, u *UserContext) context.Context {
+	return context.WithValue(ctx, userContextKey, u)
+}
+

@@ -1,0 +1,7 @@
+.git
+.air.toml
+tmp/
+bin/
+web/
+*.db
+/api

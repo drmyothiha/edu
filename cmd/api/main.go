@@ -15,8 +15,13 @@ import (
 	"edu-platform/internal/config"
 	"edu-platform/internal/copilot"
 	"edu-platform/internal/database"
+	"edu-platform/internal/notification"
+	"edu-platform/internal/privacy"
+	"edu-platform/internal/revocation"
 	"edu-platform/internal/school"
 	"edu-platform/internal/server"
+	"edu-platform/internal/transcript"
+	"edu-platform/internal/zkp"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -99,22 +104,56 @@ func main() {
 	schoolService := school.NewService(querier)
 	schoolHandler := school.NewHandler(schoolService)
 
-	// 8. Construct Chi HTTP router
+	// 8. Initialize Realtime SSE Broker & FCM Push Notification Service
+	sseBroker := notification.NewBroker()
+	pushClient, err := notification.NewPushClient(ctx, cfg.FirebaseCredentialsFile)
+	if err != nil {
+		logger.Warn("failed to initialize firebase push client, falling back to dev mode", "error", err)
+		pushClient = &notification.NoopPushClient{}
+	}
+	notificationService := notification.NewService(querier, sseBroker, pushClient)
+	notificationHandler := notification.NewHandler(notificationService)
+	schoolService.SetNotifier(notificationService)
+
+	// Wire RAG Pipeline Architecture with Vector Store and Event Bus Publisher
+	copilotPublisher := copilot.NewNotificationEventPublisher(notificationService, querier)
+	ragEncoder := copilot.NewSemanticDenseEncoder(cfg.LLMAPIKey, cfg.LLMBaseURL, "text-embedding-3-small")
+	copilotService.InitRAG(pool, ragEncoder, copilotPublisher)
+
+	// 9. Initialize Advanced Governance Engines (Transcripts, Privacy, Revocation, ZKP)
+	transcriptService := transcript.NewService()
+	transcriptHandler := transcript.NewHandler(transcriptService)
+
+	privacyService := privacy.NewService("myanmar-edu-privacy-salt-2026")
+	privacyHandler := privacy.NewHandler(privacyService)
+
+	revocationRegistry := revocation.NewRegistry("did:edu:school:national-registry", 131072)
+	revocationHandler := revocation.NewHandler(revocationRegistry)
+
+	zkpVerifier := zkp.NewVerifier()
+	zkpHandler := zkp.NewHandler(zkpVerifier)
+
+	// 10. Construct Chi HTTP router
 	router := server.NewRouter(server.RouterConfig{
-		AuthHandler:    authHandler,
-		AuthMiddleware: authMiddleware,
-		SchoolHandler:  schoolHandler,
-		CopilotHandler: copilotHandler,
+		AuthHandler:         authHandler,
+		AuthMiddleware:      authMiddleware,
+		SchoolHandler:       schoolHandler,
+		CopilotHandler:      copilotHandler,
+		NotificationHandler: notificationHandler,
+		TranscriptHandler:   transcriptHandler,
+		PrivacyHandler:      privacyHandler,
+		RevocationHandler:   revocationHandler,
+		ZKPHandler:          zkpHandler,
 	})
 
-	// 9. Setup HTTP server with production timeouts
+	// 9. Setup HTTP server with production timeouts (generous for LLM generation)
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),
 		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	serverErrors := make(chan error, 1)

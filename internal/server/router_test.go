@@ -45,6 +45,10 @@ func (m *mockQuerier) CreateLessonPlan(ctx context.Context, arg database.CreateL
 	}, nil
 }
 
+func (m *mockQuerier) ListLessonPlansByTeacherID(ctx context.Context, teacherID uuid.UUID) ([]database.LessonPlan, error) {
+	return []database.LessonPlan{}, nil
+}
+
 func setupTestServer() (http.Handler, *auth.JWTManager) {
 	mockQ := newRouterMockQuerier()
 	jwtMgr := auth.NewJWTManager("test-jwt-secret-key-32-bytes-long!", 1*time.Hour, "edu-test")

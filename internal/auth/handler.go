@@ -29,6 +29,9 @@ func (h *Handler) Routes(authMiddleware *Middleware) http.Handler {
 	r.Group(func(protected chi.Router) {
 		protected.Use(authMiddleware.RequireAuth)
 		protected.Get("/me", h.Me)
+		protected.Put("/profile", h.UpdateProfile)
+		protected.Put("/password", h.ChangePassword)
+		protected.Post("/avatar", h.UploadAvatar)
 	})
 
 	return r
@@ -99,4 +102,87 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, user)
+}
+
+// UpdateProfile handles PUT /api/v1/auth/profile
+func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := UserFromContext(r.Context())
+	if !ok || userCtx == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := response.DecodeJSON(r, &req); err != nil {
+		response.BadRequest(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	updated, err := h.service.UpdateProfile(r.Context(), userCtx.UserID, req)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			response.NotFound(w, "user not found")
+			return
+		}
+		response.BadRequest(w, err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, updated)
+}
+
+// ChangePassword handles PUT /api/v1/auth/password
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := UserFromContext(r.Context())
+	if !ok || userCtx == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := response.DecodeJSON(r, &req); err != nil {
+		response.BadRequest(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	if err := h.service.ChangePassword(r.Context(), userCtx.UserID, req); err != nil {
+		if errors.Is(err, ErrInvalidPassword) {
+			response.Unauthorized(w, err.Error())
+			return
+		}
+		response.BadRequest(w, err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{
+		"message": "password updated successfully",
+	})
+}
+
+// UploadAvatar handles POST /api/v1/auth/avatar
+func (h *Handler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := UserFromContext(r.Context())
+	if !ok || userCtx == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	var req struct {
+		AvatarURL string `json:"avatar_url"`
+	}
+	if err := response.DecodeJSON(r, &req); err != nil {
+		response.BadRequest(w, "invalid request body: "+err.Error())
+		return
+	}
+
+	updated, err := h.service.UpdateAvatar(r.Context(), userCtx.UserID, req.AvatarURL)
+	if err != nil {
+		response.InternalServerError(w, "failed to update avatar: "+err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"avatar_url": req.AvatarURL,
+		"user":       updated,
+	})
 }

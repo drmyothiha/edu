@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { SchoolDTO, CreateSchoolRequest, PCodeDTO } from '../types';
+import { silentlyRefreshSchoolsCache } from '../services/schoolCacheStorage';
 import {
   Building2,
   Globe2,
@@ -17,6 +19,12 @@ import {
   Sparkles,
   Tag,
   Hash,
+  Layers,
+  ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 
 export const SysadminDashboard: React.FC = () => {
@@ -25,56 +33,181 @@ export const SysadminDashboard: React.FC = () => {
   const [townships, setTownships] = useState<PCodeDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Server-side pagination & filter states
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(24);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedRegionFilter, setSelectedRegionFilter] = useState('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
+  const [anchoring, setAnchoring] = useState(false);
 
   // New School Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [selectedStatePCode, setSelectedStatePCode] = useState('MMR013'); // default Yangon
   const [selectedTownshipPCode, setSelectedTownshipPCode] = useState('MMR013001'); // default Dagon
+  const [wards, setWards] = useState<PCodeDTO[]>([]);
+  const [selectedWardPCode, setSelectedWardPCode] = useState<string>('');
+  const [loadingWards, setLoadingWards] = useState(false);
   const [wardNumber, setWardNumber] = useState('001');
   const [wardName, setWardName] = useState('Ward No. 1');
-  const [schoolCategory, setSchoolCategory] = useState('HS');
+  const [schoolCategory, setSchoolCategory] = useState('BEHS');
   const [sequenceNumber, setSequenceNumber] = useState('01');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [creating, setCreating] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Derived Option A Code Preview: {Ward_PCode}-{Category}{Seq}
-  const fullWardPCode = `${selectedTownshipPCode}${wardNumber.padStart(3, '0')}`;
-  const generatedOptionACode = `${fullWardPCode}-${schoolCategory}${sequenceNumber.padStart(2, '0')}`;
+  // Debounce search input to avoid hitting backend on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const fetchInitialData = async () => {
-    setLoading(true);
+  // Fetch paginated schools from server
+  const fetchSchools = useCallback(
+    async (
+      targetPage: number,
+      targetLimit: number,
+      targetSearch: string,
+      targetRegion: string,
+      targetCategory: string
+    ) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.schools.list({
+          page: targetPage,
+          limit: targetLimit,
+          search: targetSearch || undefined,
+          region: targetRegion !== 'all' ? targetRegion : undefined,
+          category: targetCategory !== 'all' ? targetCategory : undefined,
+        });
+        setSchools(res.data);
+        setTotalCount(res.pagination.total);
+        setTotalPages(res.pagination.total_pages);
+        setPage(res.pagination.page);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load school facilities');
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  // Fetch wards & village tracts for a given township
+  const fetchWardsForTownship = useCallback(async (tsPCode: string, targetWardNum?: string) => {
+    if (!tsPCode) {
+      setWards([]);
+      setSelectedWardPCode('');
+      return;
+    }
+    setLoadingWards(true);
+    try {
+      const wardData = await api.pcodes.wards(tsPCode);
+      setWards(wardData);
+      if (wardData.length > 0) {
+        const desiredSuffix = targetWardNum !== undefined ? targetWardNum : '001';
+        const match =
+          wardData.find((w) => w.pcode.endsWith(desiredSuffix) || w.pcode.slice(-3) === desiredSuffix) ||
+          wardData[0];
+        setSelectedWardPCode(match.pcode);
+        setWardName(match.name_my ? `${match.name_en} (${match.name_my})` : match.name_en);
+        const suffix = match.pcode.slice(-3);
+        if (/^\d{3}$/.test(suffix)) {
+          setWardNumber(suffix);
+        }
+      } else {
+        setSelectedWardPCode('');
+      }
+    } catch {
+      setWards([]);
+      setSelectedWardPCode('');
+    } finally {
+      setLoadingWards(false);
+    }
+  }, []);
+
+  // Load MIMU metadata once on mount
+  useEffect(() => {
+    let ignore = false;
+    const loadMetadata = async () => {
+      try {
+        const [statesData, tsData] = await Promise.all([
+          api.pcodes.states(),
+          api.pcodes.townships('MMR013'),
+        ]);
+        if (!ignore) {
+          setStates(statesData);
+          setTownships(tsData);
+          if (tsData.length > 0) {
+            fetchWardsForTownship(tsData[0].pcode, '001');
+          }
+          // Warm nationwide schools IndexedDB cache in background
+          silentlyRefreshSchoolsCache().catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    };
+    loadMetadata();
+    return () => {
+      ignore = true;
+    };
+  }, [fetchWardsForTownship]);
+
+  // Fetch schools on filter/search/limit change (resets to page 1)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      fetchSchools(1, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter);
+      return;
+    }
+    setPage(1);
+    fetchSchools(1, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter);
+  }, [debouncedSearch, selectedRegionFilter, selectedCategoryFilter, limit, fetchSchools]);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages || newPage === page) return;
+    setPage(newPage);
+    fetchSchools(newPage, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAnchorBatch = async () => {
+    setAnchoring(true);
     setError(null);
     try {
-      const [schoolsData, statesData] = await Promise.all([
-        api.schools.list(),
-        api.pcodes.states(),
-      ]);
-      setSchools(schoolsData);
-      setStates(statesData);
-
-      // Fetch initial townships for default state
-      if (statesData.length > 0) {
-        const tsData = await api.pcodes.townships('MMR013');
-        setTownships(tsData);
+      const res = await api.blockchain.anchorBatch();
+      if (res.batch_size > 0) {
+        setSuccessMsg(`Anchored ${res.batch_size} credentials to ${res.network}! Merkle Root: [${res.merkle_root.slice(0, 16)}...] Tx: [${res.tx_hash.slice(0, 16)}...]`);
+      } else {
+        setSuccessMsg('All student credentials are already anchored to Layer-2.');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load school facilities');
+      setError(err.message || 'Failed to anchor credentials to blockchain');
     } finally {
-      setLoading(false);
+      setAnchoring(false);
     }
   };
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
+  // Derived Option A Code Preview: {Ward_PCode}-{Category}{Seq}
+  const currentWardObj = wards.find((w) => w.pcode === selectedWardPCode);
+  const fullWardPCode =
+    selectedWardPCode && selectedWardPCode !== 'custom'
+      ? selectedWardPCode
+      : `${selectedTownshipPCode}${wardNumber.padStart(3, '0')}`;
+  const generatedOptionACode = `${fullWardPCode}-${schoolCategory}${sequenceNumber ? sequenceNumber.padStart(2, '0') : '01'}`;
 
-  // When selected State/Region changes in modal, fetch corresponding townships
+  // When selected State/Region changes in modal, fetch corresponding townships & wards
   const handleStateChange = async (srPCode: string) => {
     setSelectedStatePCode(srPCode);
     try {
@@ -82,9 +215,34 @@ export const SysadminDashboard: React.FC = () => {
       setTownships(tsData);
       if (tsData.length > 0) {
         setSelectedTownshipPCode(tsData[0].pcode);
+        fetchWardsForTownship(tsData[0].pcode);
+      } else {
+        setSelectedTownshipPCode('');
+        setWards([]);
+        setSelectedWardPCode('');
       }
     } catch {
       // ignore
+    }
+  };
+
+  const handleTownshipChange = (tsPCode: string) => {
+    setSelectedTownshipPCode(tsPCode);
+    fetchWardsForTownship(tsPCode);
+  };
+
+  const handleWardSelect = (pcode: string) => {
+    setSelectedWardPCode(pcode);
+    if (pcode === 'custom') {
+      return;
+    }
+    const match = wards.find((w) => w.pcode === pcode);
+    if (match) {
+      setWardName(match.name_my ? `${match.name_en} (${match.name_my})` : match.name_en);
+      const suffix = match.pcode.slice(-3);
+      if (/^\d{3}$/.test(suffix)) {
+        setWardNumber(suffix);
+      }
     }
   };
 
@@ -107,19 +265,22 @@ export const SysadminDashboard: React.FC = () => {
         pcode_sr: selectedStatePCode,
         pcode_ts: selectedTownshipPCode,
         pcode_ward_vt: fullWardPCode,
-        pcode_level: 'ward',
+        pcode_level: currentWardObj?.pcode_type || 'ward',
         township_name: currentTS?.name_en || '',
         ward_village_name: wardName.trim(),
         school_category: schoolCategory,
       };
 
       const created = await api.schools.create(payload);
-      setSchools((prev) => [created, ...prev]);
       setSuccessMsg(`School "${created.name}" provisioned with Option A Code [${created.code}]!`);
       setModalOpen(false);
       setName('');
       setAddress('');
       setPhone('');
+      // Refresh current page & silently update IndexedDB cache
+      fetchSchools(1, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter);
+      setPage(1);
+      silentlyRefreshSchoolsCache().catch(() => {});
     } catch (err: any) {
       setError(err.message || 'Failed to provision school');
     } finally {
@@ -127,36 +288,50 @@ export const SysadminDashboard: React.FC = () => {
     }
   };
 
-  const regions = Array.from(new Set(schools.map((s) => s.region).filter(Boolean)));
-  const filteredSchools = schools.filter((s) => {
-    const matchesSearch =
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.code.toLowerCase().includes(search.toLowerCase()) ||
-      s.city.toLowerCase().includes(search.toLowerCase()) ||
-      (s.pcode_ts && s.pcode_ts.toLowerCase().includes(search.toLowerCase())) ||
-      (s.pcode_ward_vt && s.pcode_ward_vt.toLowerCase().includes(search.toLowerCase()));
-
-    const matchesRegion = selectedRegionFilter === 'all' || s.region === selectedRegionFilter;
-    const matchesCategory =
-      selectedCategoryFilter === 'all' || (s.school_category || 'HS') === selectedCategoryFilter;
-
-    return matchesSearch && matchesRegion && matchesCategory;
-  });
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push('...');
+      const start = Math.max(2, page - 1);
+      const end = Math.min(totalPages - 1, page + 1);
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+      if (page < totalPages - 2) pages.push('...');
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   const getCategoryBadge = (cat?: string) => {
     switch (cat) {
+      case 'BEHS':
       case 'HS':
         return { label: 'BEHS (အ.ထ.က)', bg: 'bg-indigo-100 text-indigo-800 border-indigo-200' };
+      case 'BEHS-BR':
+      case 'PO':
+        return { label: 'BEHS Branch (အ.ထ.က ခွဲ)', bg: 'bg-teal-100 text-teal-800 border-teal-200' };
+      case 'BEMS':
       case 'MS':
         return { label: 'BEMS (အ.လ.က)', bg: 'bg-sky-100 text-sky-800 border-sky-200' };
+      case 'BEPS':
       case 'PS':
         return { label: 'BEPS (အ.မ.က)', bg: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
+      case 'UNI':
+      case 'UCSY':
+      case 'YTU':
+      case 'UIT':
+      case 'HEI':
+        return { label: `${cat} (တက္ကသိုလ်)`, bg: 'bg-blue-100 text-blue-800 border-blue-200' };
       case 'PV':
         return { label: 'Private (ကိုယ်ပိုင်)', bg: 'bg-purple-100 text-purple-800 border-purple-200' };
       case 'ME':
         return { label: 'Monastic (ဘ.က)', bg: 'bg-amber-100 text-amber-800 border-amber-200' };
       default:
-        return { label: 'School (ကျောင်း)', bg: 'bg-slate-100 text-slate-800 border-slate-200' };
+        return { label: cat ? `${cat} (ကျောင်း)` : 'School (ကျောင်း)', bg: 'bg-slate-100 text-slate-800 border-slate-200' };
     }
   };
 
@@ -183,12 +358,27 @@ export const SysadminDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to="/verify"
+            target="_blank"
+            className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" /> Public Verifier
+          </Link>
           <button
-            onClick={fetchInitialData}
+            onClick={handleAnchorBatch}
+            disabled={anchoring}
+            className="p-2 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+          >
+            <Layers className="h-3.5 w-3.5" />
+            {anchoring ? 'Anchoring to L2...' : 'Anchor Batch (Polygon L2)'}
+          </button>
+          <button
+            onClick={() => fetchSchools(page, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter)}
             className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
           <button
             onClick={() => setModalOpen(true)}
@@ -221,9 +411,9 @@ export const SysadminDashboard: React.FC = () => {
             <span className="text-xs font-bold uppercase tracking-wider">Total Schools</span>
             <Building2 className="h-4 w-4 text-indigo-600" />
           </div>
-          <p className="text-3xl font-black text-slate-900 mt-2">{schools.length}</p>
+          <p className="text-3xl font-black text-slate-900 mt-2">{totalCount.toLocaleString()}</p>
           <span className="text-[11px] text-emerald-600 font-semibold mt-1 inline-block">
-            Across {regions.length} Regions
+            Across {states.length || 15} States & Regions
           </span>
         </div>
 
@@ -232,7 +422,7 @@ export const SysadminDashboard: React.FC = () => {
             <span className="text-xs font-bold uppercase tracking-wider">MIMU Coverage</span>
             <Globe2 className="h-4 w-4 text-purple-600" />
           </div>
-          <p className="text-3xl font-black text-slate-900 mt-2">{states.length}</p>
+          <p className="text-3xl font-black text-slate-900 mt-2">{states.length || 15}</p>
           <span className="text-[11px] text-slate-500 font-medium mt-1 inline-block">
             All 15 States & Regions
           </span>
@@ -269,7 +459,7 @@ export const SysadminDashboard: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search school name, code, or P-Code..."
+            placeholder="Search school name, code, city, township..."
             className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
@@ -279,12 +469,12 @@ export const SysadminDashboard: React.FC = () => {
           <select
             value={selectedRegionFilter}
             onChange={(e) => setSelectedRegionFilter(e.target.value)}
-            className="text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-xs"
           >
-            <option value="all">All States & Regions</option>
-            {regions.map((reg) => (
-              <option key={reg} value={reg}>
-                {reg}
+            <option value="all">All States & Regions (တစ်နိုင်ငံလုံး)</option>
+            {states.map((st) => (
+              <option key={st.pcode} value={st.pcode}>
+                {st.name_en} ({st.name_my})
               </option>
             ))}
           </select>
@@ -295,9 +485,11 @@ export const SysadminDashboard: React.FC = () => {
             className="text-xs border border-slate-300 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             <option value="all">All Categories</option>
-            <option value="HS">High School (အ.ထ.က)</option>
-            <option value="MS">Middle School (အ.လ.က)</option>
-            <option value="PS">Primary School (အ.မ.က)</option>
+            <option value="BEHS">BEHS (အ.ထ.က)</option>
+            <option value="BEHS-BR">BEHS Branch (အ.ထ.က ခွဲ)</option>
+            <option value="BEMS">BEMS (အ.လ.က)</option>
+            <option value="BEPS">BEPS (အ.မ.က)</option>
+            <option value="UNI">Universities (တက္ကသိုလ်များ)</option>
             <option value="PV">Private / Intl (ကိုယ်ပိုင်)</option>
             <option value="ME">Monastic (ဘ.က)</option>
           </select>
@@ -310,7 +502,7 @@ export const SysadminDashboard: React.FC = () => {
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent mx-auto" />
           <p className="text-xs text-slate-500 font-medium">Loading nationwide schools...</p>
         </div>
-      ) : filteredSchools.length === 0 ? (
+      ) : schools.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-xl border border-slate-200">
           <Building2 className="h-10 w-10 text-slate-300 mx-auto mb-2" />
           <p className="text-sm font-bold text-slate-700">No school facilities found</p>
@@ -318,7 +510,7 @@ export const SysadminDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredSchools.map((school) => {
+          {schools.map((school) => {
             const badge = getCategoryBadge(school.school_category);
             return (
               <div
@@ -344,7 +536,7 @@ export const SysadminDashboard: React.FC = () => {
                   </div>
 
                   <h3 className="font-bold text-slate-900 text-base leading-tight mt-1">
-                    {school.name}
+                    {school.name_my || school.name}
                   </h3>
 
                   {/* Option A MIMU P-Code Tag */}
@@ -382,11 +574,101 @@ export const SysadminDashboard: React.FC = () => {
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                   <span className="text-[11px] font-mono">UUID: {school.id.slice(0, 8)}...</span>
-                  <span className="font-semibold text-indigo-600">Active Tenant</span>
+                  <Link
+                    to={`/school-admin?school_id=${school.id}`}
+                    className="inline-flex items-center gap-1 font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-0.5 rounded transition"
+                  >
+                    Campus Classes <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Server-Side Pagination Bar */}
+      {totalCount > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-xs text-slate-600">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>
+              Showing <strong className="text-slate-900 font-semibold">{((page - 1) * limit) + 1}</strong> -{' '}
+              <strong className="text-slate-900 font-semibold">{Math.min(page * limit, totalCount)}</strong> of{' '}
+              <strong className="text-slate-900 font-semibold">{totalCount.toLocaleString()}</strong> schools
+            </span>
+            <span className="text-slate-300">|</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Per page:</span>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="px-2 py-1 border border-slate-300 rounded text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value={12}>12</option>
+                <option value={24}>24</option>
+                <option value={48}>48</option>
+                <option value={96}>96</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={page <= 1 || loading}
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              title="First Page"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page <= 1 || loading}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 transition font-medium"
+            >
+              <ChevronLeft className="h-4 w-4" /> Prev
+            </button>
+
+            {/* Page Numbers */}
+            <div className="flex items-center gap-1 mx-1">
+              {getPageNumbers().map((p, idx) =>
+                p === '...' ? (
+                  <span key={`ellipsis-${idx}`} className="px-1 text-slate-400">
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => handlePageChange(Number(p))}
+                    disabled={loading}
+                    className={`h-8 min-w-[32px] px-2 rounded-lg font-semibold transition ${
+                      page === p
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'border border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page >= totalPages || loading}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 transition font-medium"
+            >
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handlePageChange(totalPages)}
+              disabled={page >= totalPages || loading}
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              title="Last Page"
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -464,47 +746,99 @@ export const SysadminDashboard: React.FC = () => {
                   </label>
                   <select
                     value={selectedTownshipPCode}
-                    onChange={(e) => setSelectedTownshipPCode(e.target.value)}
+                    onChange={(e) => handleTownshipChange(e.target.value)}
                     className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   >
                     {townships.map((ts) => (
                       <option key={ts.pcode} value={ts.pcode}>
-                        {ts.name_en} ({ts.pcode})
+                        {ts.name_en} {ts.name_my ? `(${ts.name_my})` : ''} ({ts.pcode})
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {/* Ward P-Code Suffix & Ward Name */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Ward / Village Tract MIMU Selector & Manual Fields */}
+              <div className="space-y-3 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Ward / Village Tract No. *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={wardNumber}
-                    onChange={(e) => setWardNumber(e.target.value)}
-                    placeholder="001"
-                    maxLength={3}
-                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                  />
-                  <span className="text-[10px] text-slate-500">Ward PCode: {fullWardPCode}</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      MIMU Ward / Village Tract (ရပ်ကွက် / ကျေးရွာအုပ်စု)
+                    </label>
+                    {loadingWards && (
+                      <span className="text-[11px] text-indigo-600 animate-pulse font-semibold">
+                        MIMU စာရင်း ရယူနေသည်...
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    value={selectedWardPCode}
+                    onChange={(e) => handleWardSelect(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-medium"
+                  >
+                    <option value="">
+                      {wards.length > 0
+                        ? `-- ရွေးချယ်ပါ / Select from ${wards.length} MIMU units --`
+                        : '-- No MIMU units found (use manual entry) --'}
+                    </option>
+                    {wards.filter((w) => w.pcode_type === 'ward').length > 0 && (
+                      <optgroup label="Urban Wards (မြို့ပေါ်ရပ်ကွက်များ)">
+                        {wards
+                          .filter((w) => w.pcode_type === 'ward')
+                          .map((w) => (
+                            <option key={w.pcode} value={w.pcode}>
+                              {w.name_en} {w.name_my ? `(${w.name_my})` : ''} - {w.pcode}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                    {wards.filter((w) => w.pcode_type === 'village_tract').length > 0 && (
+                      <optgroup label="Village Tracts (ကျေးရွာအုပ်စုများ)">
+                        {wards
+                          .filter((w) => w.pcode_type === 'village_tract')
+                          .map((w) => (
+                            <option key={w.pcode} value={w.pcode}>
+                              {w.name_en} {w.name_my ? `(${w.name_my})` : ''} - {w.pcode}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                    <option value="custom">-- Custom / အခြား ကိုယ်တိုင်ထည့်မည် --</option>
+                  </select>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Ward / Village Name
-                  </label>
-                  <input
-                    type="text"
-                    value={wardName}
-                    onChange={(e) => setWardName(e.target.value)}
-                    placeholder="e.g. Ward No. 1 / အမှတ် (၁) ရပ်ကွက်"
-                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Ward / Village Tract No. *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={wardNumber}
+                      onChange={(e) => {
+                        setWardNumber(e.target.value);
+                        setSelectedWardPCode('custom');
+                      }}
+                      placeholder="001"
+                      maxLength={4}
+                      className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono bg-white"
+                    />
+                    <span className="text-[10px] text-slate-500 font-mono">Ward PCode: {fullWardPCode}</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Ward / Village Name
+                    </label>
+                    <input
+                      type="text"
+                      value={wardName}
+                      onChange={(e) => setWardName(e.target.value)}
+                      placeholder="e.g. Alam / အာလမ်"
+                      className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -519,12 +853,22 @@ export const SysadminDashboard: React.FC = () => {
                     onChange={(e) => setSchoolCategory(e.target.value)}
                     className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-semibold"
                   >
-                    <option value="HS">BEHS (အ.ထ.က) - High School</option>
-                    <option value="MS">BEMS (အ.လ.က) - Middle School</option>
-                    <option value="PS">BEPS (အ.မ.က) - Primary School</option>
-                    <option value="PO">Post-Primary (အ.ထ.က(ခွဲ))</option>
-                    <option value="PV">Private / International (ကိုယ်ပိုင်)</option>
-                    <option value="ME">Monastic (ဘ.က - ဘုန်းတော်ကြီးသင်)</option>
+                    <optgroup label="Basic Education (အခြေခံပညာ)">
+                      <option value="BEHS">BEHS (အ.ထ.က) - High School</option>
+                      <option value="BEHS-BR">BEHS-BR (အ.ထ.က ခွဲ) - High School Branch</option>
+                      <option value="BEMS">BEMS (အ.လ.က) - Middle School</option>
+                      <option value="BEPS">BEPS (အ.မ.က) - Primary School</option>
+                    </optgroup>
+                    <optgroup label="Higher Education (တက္ကသိုလ် / ကောလိပ်)">
+                      <option value="UNI">UNI - General University (တက္ကသိုလ်)</option>
+                      <option value="UCSY">UCSY - Computer University (ကွန်ပျူတာတက္ကသိုလ်)</option>
+                      <option value="YTU">YTU - Technological University (နည်းပညာတက္ကသိုလ်)</option>
+                      <option value="UIT">UIT - Information Technology University (သတင်းအချက်အလက်နည်းပညာတက္ကသိုလ်)</option>
+                    </optgroup>
+                    <optgroup label="Other Institutions (အခြား)">
+                      <option value="PV">Private / International (ကိုယ်ပိုင်)</option>
+                      <option value="ME">Monastic (ဘ.က - ဘုန်းတော်ကြီးသင်)</option>
+                    </optgroup>
                   </select>
                 </div>
 

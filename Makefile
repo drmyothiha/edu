@@ -1,9 +1,10 @@
-.PHONY: all build run test clean sqlc-generate sqlc migrate-up migrate-down seed tidy help
+.PHONY: all build run dev test clean kill-port sqlc-generate sqlc migrate-up migrate-down seed tidy help
 
 APP_NAME=edu-api
 BIN_DIR=bin
 DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/edu_db?sslmode=disable
 SQLC ?= $(shell which sqlc 2>/dev/null || echo $(HOME)/go/bin/sqlc)
+AIR ?= $(shell which air 2>/dev/null || echo $(HOME)/go/bin/air)
 
 all: build
 
@@ -12,7 +13,13 @@ build:
 	go build -o $(BIN_DIR)/$(APP_NAME) ./cmd/api
 
 run:
-	go run ./cmd/api
+	@if [ -x "$(AIR)" ]; then \
+		$(AIR); \
+	else \
+		go run ./cmd/api; \
+	fi
+
+dev: run
 
 sqlc-generate:
 	@if [ ! -x "$(SQLC)" ]; then \
@@ -47,7 +54,12 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) tmp/
+
+kill-port:
+	@echo "Killing process on port 8080..."
+	@lsof -ti :8080 | xargs kill -9 2>/dev/null || echo "Port 8080 is already free"
+
 
 web-install:
 	cd web && npm install
@@ -61,10 +73,31 @@ web-build:
 web-dev:
 	cd web && npm run dev
 
+CLOUD_HOST ?= mth@34.21.230.33
+CLOUD_PATH ?= /home/mth/edu/
+
+sync:
+	@chmod +x ./scripts/sync.sh
+	@./scripts/sync.sh
+
+sync-to-cloud:
+	@echo "Syncing local changes to cloud server ($(CLOUD_HOST):$(CLOUD_PATH))..."
+	rsync -avu --exclude 'node_modules' --exclude 'tmp' --exclude 'bin' --exclude '.DS_Store' --exclude '.env' ./ $(CLOUD_HOST):$(CLOUD_PATH)
+	@echo "Sync to cloud complete."
+
+sync-from-cloud:
+	@echo "Syncing cloud changes down to local machine..."
+	rsync -avu --exclude 'node_modules' --exclude 'tmp' --exclude 'bin' --exclude '.DS_Store' --exclude '.env' $(CLOUD_HOST):$(CLOUD_PATH) ./
+	@echo "Sync from cloud complete."
+
 help:
 	@echo "Available commands:"
+	@echo "  make sync           Two-way sync: downloads cloud edits and uploads local edits"
+	@echo "  make sync-to-cloud  Upload local changes to GCP VM (34.21.230.33)"
+	@echo "  make sync-from-cloud Pull changes made on GCP VM down to Mac"
 	@echo "  make build          Compile API server binary into bin/"
-	@echo "  make run            Run API server locally"
+	@echo "  make run            Run API server with air (hot-reload) or go run"
+	@echo "  make dev            Alias for make run (hot-reload with air)"
 	@echo "  make sqlc-generate  Generate typed Go database code using sqlc"
 	@echo "  make migrate-up     Apply schema migrations to PostgreSQL"
 	@echo "  make migrate-down   Rollback database schema"

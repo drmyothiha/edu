@@ -1,0 +1,29 @@
+{
+  "short_name": "Gate Kiosk",
+  "name": "အင်းတိုင် အထက • ကျောင်းဝင်ပေါက် ကတ်စစ်ဆေးရေး (BEHS Intaing Gate Kiosk)",
+  "description": "Offline-First NFC & QR Smart Card Entrance Verification & Attendance Kiosk",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/gate-kiosk",
+  "display": "standalone",
+  "theme_color": "#4f46e5",
+  "background_color": "#020617",
+  "orientation": "any"
+}

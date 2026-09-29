@@ -44,6 +44,43 @@ func TestMockLLMClientGenerateLessonPlan(t *testing.T) {
 	}
 }
 
+func TestMockLLMClientGenerateLessonPlanBurmese(t *testing.T) {
+	client := NewMockLLMClient()
+
+	req := LessonPlanPromptRequest{
+		Subject:         "Mathematics",
+		GradeLevel:      "Grade 8",
+		Topic:           "Pythagorean Theorem",
+		DurationMinutes: 50,
+	}
+
+	markdown, err := client.GenerateLessonPlanBurmese(context.Background(), req, "")
+	if err != nil {
+		t.Fatalf("unexpected error generating burmese lesson plan: %v", err)
+	}
+
+	if len(markdown) == 0 {
+		t.Fatalf("generated burmese markdown should not be empty")
+	}
+
+	expectedSubstrings := []string{
+		"သင်ရိုးညွှန်းတမ်းနှင့် ကိုက်ညီသော သင်ခန်းစာ အစီအစဉ်",
+		"ဘာသာရပ်",
+		"အတန်း",
+		"သင်ယူမှု ရည်မှန်းချက်များ",
+		"အဓိက မေးခွန်းများ",
+		"သင်ကြားရေး အဆင့်ဆင့်နှင့် အချိန်ဇယား",
+		"အဆင့် ၁: နိဒါန်းပျိုးခြင်း",
+		"အကဲဖြတ် စစ်ဆေးခြင်း",
+	}
+
+	for _, sub := range expectedSubstrings {
+		if !strings.Contains(markdown, sub) {
+			t.Errorf("expected generated burmese markdown to contain %q", sub)
+		}
+	}
+}
+
 func TestLLMClientFactory(t *testing.T) {
 	// Test mock fallback
 	c1 := NewLLMClientFactory("unknown", "", "", "")
@@ -67,5 +104,13 @@ func TestLLMClientFactory(t *testing.T) {
 	c4 := NewLLMClientFactory("anthropic", "ant-key", "", "")
 	if _, ok := c4.(*AnthropicClient); !ok {
 		t.Errorf("expected AnthropicClient when anthropic api key is provided")
+	}
+
+	// Test DeepSeek with key
+	c5 := NewLLMClientFactory("deepseek", "sk-deepseek", "", "")
+	if oClient, ok := c5.(*OpenAIClient); !ok {
+		t.Errorf("expected OpenAIClient when deepseek api key is provided")
+	} else if oClient.baseURL != "https://api.deepseek.com" || oClient.model != "deepseek-chat" {
+		t.Errorf("expected deepseek default baseURL and model, got %s and %s", oClient.baseURL, oClient.model)
 	}
 }

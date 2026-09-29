@@ -8,8 +8,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  quickLogin: (role: UserRole, customEmail?: string) => Promise<void>;
+  quickLogin: (role: UserRole, customEmail?: string, customPass?: string) => Promise<void>;
   logout: () => void;
+  updateUser: (updatedData: Partial<User>) => void;
+  refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -57,32 +59,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const quickLogin = async (role: UserRole, customEmail?: string) => {
+  const quickLogin = async (role: UserRole, customEmail?: string, customPass?: string) => {
     if (customEmail) {
-      const pass =
-        role === 'sysadmin'
-          ? 'SysAdmin123!'
-          : role === 'teacher'
-          ? 'Teacher123!'
-          : role === 'student'
-          ? 'Student123!'
-          : role === 'parent'
-          ? 'Parent123!'
-          : 'Admin123!';
-      await login(customEmail, pass);
+      const pass = customPass || 'mth';
+      try {
+        await login(customEmail, pass);
+      } catch (err) {
+        if (role === 'sysadmin') {
+          await login(customEmail, pass === 'mth' ? 'SysAdmin123!' : 'mth');
+        } else {
+          throw err;
+        }
+      }
       return;
     }
     const credentials: Record<UserRole, { email: string; pass: string }> = {
-      sysadmin: { email: 'sysadmin@edu.local', pass: 'SysAdmin123!' },
-      school_admin: { email: 'admin.ygn@edu.local', pass: 'Admin123!' },
-      admin: { email: 'admin@edu.local', pass: 'Admin123!' },
-      teacher: { email: 'teacher.smith@edu.local', pass: 'Teacher123!' },
-      parent: { email: 'parent.clark@edu.local', pass: 'Parent123!' },
-      student: { email: 'student.alice@edu.local', pass: 'Student123!' },
+      sysadmin: { email: 'sysadmin@edu.local', pass: 'mth' },
+      school_admin: { email: 'admin@mmr013035-behs01.edu.local', pass: 'mth' },
+      admin: { email: 'admin@mmr013035-behs01.edu.local', pass: 'mth' },
+      teacher: { email: '0911111', pass: 'mth' },
+      parent: { email: '0922222', pass: 'mth' },
+      student: { email: 'student.alice@edu.local', pass: 'mth' },
     };
     const cred = credentials[role];
     if (cred) {
-      await login(cred.email, cred.pass);
+      try {
+        await login(cred.email, cred.pass);
+      } catch (err) {
+        if (role === 'sysadmin') {
+          await login(cred.email, 'SysAdmin123!');
+        } else {
+          throw err;
+        }
+      }
     }
   };
 
@@ -91,6 +100,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(USER_KEY);
     setToken(null);
     setUser(null);
+  };
+
+  const updateUser = (updatedData: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      const next = { ...prev, ...updatedData };
+      localStorage.setItem(USER_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const refreshUser = async (): Promise<User | null> => {
+    try {
+      const freshUser = await api.auth.me();
+      setUser(freshUser);
+      localStorage.setItem(USER_KEY, JSON.stringify(freshUser));
+      return freshUser;
+    } catch (e) {
+      console.warn('Failed to refresh user profile:', e);
+      return null;
+    }
   };
 
   return (
@@ -103,6 +133,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         quickLogin,
         logout,
+        updateUser,
+        refreshUser,
       }}
     >
       {children}
