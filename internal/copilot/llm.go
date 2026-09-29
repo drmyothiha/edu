@@ -13,10 +13,12 @@ import (
 
 // LessonPlanPromptRequest contains the input parameters for lesson plan generation
 type LessonPlanPromptRequest struct {
-	Subject         string `json:"subject"`
-	GradeLevel      string `json:"grade_level"`
-	Topic           string `json:"topic"`
-	DurationMinutes int    `json:"duration_minutes"`
+	Subject              string `json:"subject"`
+	GradeLevel           string `json:"grade_level"`
+	Topic                string `json:"topic"`
+	DurationMinutes      int    `json:"duration_minutes"`
+	PedagogicalFramework string `json:"pedagogical_framework,omitempty"` // "moe", "ib_pyp_myp", "cambridge", "model_5e", "udl"
+	BloomsLevel          string `json:"blooms_level,omitempty"`          // e.g., "Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"
 }
 
 // LLMClient is the pluggable interface for LLM providers (e.g. Mock, OpenAI, Anthropic)
@@ -40,27 +42,49 @@ func (m *MockLLMClient) GenerateLessonPlan(ctx context.Context, req LessonPlanPr
 		duration = 45
 	}
 
-	warmupTime := duration / 9
-	if warmupTime < 5 {
-		warmupTime = 5
+	framework := strings.ToLower(req.PedagogicalFramework)
+	if framework == "" {
+		framework = "moe"
 	}
+
+	blooms := req.BloomsLevel
+	if blooms == "" {
+		blooms = "Apply (လက်တွေ့ အသုံးချမှု အဆင့်)"
+	}
+
+	switch framework {
+	case "ib_pyp_myp":
+		return m.generateIBLessonPlan(req, duration, blooms)
+	case "cambridge":
+		return m.generateCambridgeLessonPlan(req, duration, blooms)
+	case "model_5e":
+		return m.generate5ELessonPlan(req, duration, blooms)
+	case "udl":
+		return m.generateUDLLessonPlan(req, duration, blooms)
+	default:
+		return m.generateMoELessonPlan(req, duration, blooms)
+	}
+}
+
+func (m *MockLLMClient) generateMoELessonPlan(req LessonPlanPromptRequest, duration int, blooms string) (string, error) {
+	warmupTime := duration / 9
+	if warmupTime < 5 { warmupTime = 5 }
 	instructionTime := duration / 3
 	guidedTime := duration / 3
 	independentTime := duration - warmupTime - instructionTime - guidedTime - 5
-	if independentTime < 5 {
-		independentTime = 5
-	}
+	if independentTime < 5 { independentTime = 5 }
 	closureTime := 5
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Curriculum-Aligned Lesson Plan: %s\n\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("**Framework:** Myanmar MoE National Standard (KG+12)  \n"))
 	sb.WriteString(fmt.Sprintf("**Subject:** %s  \n", req.Subject))
 	sb.WriteString(fmt.Sprintf("**Grade Level:** %s  \n", req.GradeLevel))
 	sb.WriteString(fmt.Sprintf("**Total Duration:** %d minutes  \n", duration))
-	sb.WriteString(fmt.Sprintf("**Alignment Standard:** National & State Common Core Framework (%s)\n\n", req.Subject))
+	sb.WriteString(fmt.Sprintf("**Cognitive Target:** %s  \n", blooms))
+	sb.WriteString(fmt.Sprintf("**Alignment Code:** [MM-MOE-CURRICULUM-STD]\n\n"))
 
-	sb.WriteString("## 1. Learning Objectives\n")
-	sb.WriteString("By the end of this lesson, students will be able to (SWBAT):\n")
+	sb.WriteString("## 1. Learning Objectives (SWBAT)\n")
 	sb.WriteString(fmt.Sprintf("- Define the foundational terminology and principles governing **%s**.\n", req.Topic))
 	sb.WriteString(fmt.Sprintf("- Apply analytical reasoning to solve real-world problems involving **%s** with at least 80%% accuracy.\n", req.Topic))
 	sb.WriteString(fmt.Sprintf("- Collaborate with peers to explain the conceptual mechanics of **%s**.\n\n", req.Topic))
@@ -75,7 +99,7 @@ func (m *MockLLMClient) GenerateLessonPlan(ctx context.Context, req LessonPlanPr
 	sb.WriteString("- Digital graphing/reference tools and exit tickets\n")
 	sb.WriteString("- Formative assessment rubric\n\n")
 
-	sb.WriteString("## 4. Instructional Sequence & Timeline\n\n")
+	sb.WriteString("## 4. 5-Phase Instructional Sequence & Timeline\n\n")
 	sb.WriteString(fmt.Sprintf("### Phase 1: Warm-Up & Hook (%d mins)\n", warmupTime))
 	sb.WriteString(fmt.Sprintf("- **Focus Activity:** Present a provocative inquiry challenge or puzzle illustrating %s.\n", req.Topic))
 	sb.WriteString("- **Prior Knowledge Activation:** Quick think-pair-share reviewing prerequisites.\n\n")
@@ -100,9 +124,197 @@ func (m *MockLLMClient) GenerateLessonPlan(ctx context.Context, req LessonPlanPr
 	sb.WriteString("- **Support (Tier 2 / ELL / IEP):** Graphic organizers, formula reference cards, step-by-step problem checklists.\n")
 	sb.WriteString("- **Extension (Gifted & Talented):** Advanced synthesis questions exploring multi-variable scenarios or historical context.\n\n")
 
-	sb.WriteString("## 6. Assessment & Evaluation\n")
+	sb.WriteString("## 6. Assessment & Evaluation Rubric\n")
 	sb.WriteString("- **Formative:** Guided practice observation and exit ticket score (>= 80% benchmark).\n")
 	sb.WriteString(fmt.Sprintf("- **Summative Link:** Informs upcoming unit quiz and homework assignment for %s.\n", req.Subject))
+
+	return sb.String(), nil
+}
+
+func (m *MockLLMClient) generateIBLessonPlan(req LessonPlanPromptRequest, duration int, blooms string) (string, error) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# IB World School Inquiry Unit: %s\n\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("**Pedagogical Framework:** IB World School (PYP/MYP Inquiry Framework)  \n"))
+	sb.WriteString(fmt.Sprintf("**Subject Group:** %s  \n", req.Subject))
+	sb.WriteString(fmt.Sprintf("**Year / Grade:** %s  \n", req.GradeLevel))
+	sb.WriteString(fmt.Sprintf("**Allocated Duration:** %d minutes  \n", duration))
+	sb.WriteString(fmt.Sprintf("**Cognitive Taxonomy:** %s  \n", blooms))
+	sb.WriteString(fmt.Sprintf("**Global Context:** Orientation in Space and Time & Scientific and Technical Innovation\n\n"))
+
+	sb.WriteString("## 1. IB Conceptual Focus & Statement of Inquiry\n")
+	sb.WriteString(fmt.Sprintf("- **Key Concept:** Form and Relationships\n"))
+	sb.WriteString(fmt.Sprintf("- **Related Concepts:** Systems, Representation, Logic\n"))
+	sb.WriteString(fmt.Sprintf("- **Statement of Inquiry:** Understanding how structural models representing **%s** function allows communities to solve real-world logistical and scientific challenges.\n\n", req.Topic))
+
+	sb.WriteString("## 2. Inquiry Questions\n")
+	sb.WriteString(fmt.Sprintf("- **Factual:** What are the mathematical/scientific components defining **%s**?\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("- **Conceptual:** How does **%s** reflect patterns and equilibrium in natural and human systems?\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("- **Debatable:** To what extent should automated technology replace human estimation when analyzing **%s**?\n\n", req.Topic))
+
+	sb.WriteString("## 3. Approaches to Learning (ATL) Skills\n")
+	sb.WriteString("- **Thinking Skills:** Critical thinking & creative problem-solving through evidence.\n")
+	sb.WriteString("- **Communication Skills:** Expressing mathematical/scientific reasoning using precise terminology.\n")
+	sb.WriteString("- **Social & Self-Management Skills:** Peer collaboration, time management, and reflective self-assessment.\n\n")
+
+	sb.WriteString("## 4. IB Inquiry Cycle Learning Sequence\n\n")
+	sb.WriteString(fmt.Sprintf("### Stage 1: Tuning In (Hook & Prior Knowledge) (%d mins)\n", duration/6))
+	sb.WriteString(fmt.Sprintf("- Introduce a real-world case study illustrating **%s**.\n", req.Topic))
+	sb.WriteString("- Students map prior knowledge on sticky notes or digital whiteboard.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Stage 2: Finding Out (Direct Exploration & Modeling) (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- Teacher guides collaborative investigation into core principles of **%s**.\n", req.Topic))
+	sb.WriteString("- Students gather evidence, construct formulas, and analyze worked models.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Stage 3: Sorting Out (Guided Analysis & Group Inquiry) (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- In small collaborative groups, students solve multi-step inquiry tasks on **%s**.\n", req.Topic))
+	sb.WriteString("- Peer critique using IB criterion-referenced feedback prompts.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Stage 4: Reflecting & Taking Action (%d mins)\n", duration/6))
+	sb.WriteString(fmt.Sprintf("- Students write an IB reflective exit journal connecting **%s** to global sustainability.\n", req.Topic))
+	sb.WriteString("- Formative self-evaluation against Criterion A (Knowing and Understanding).\n\n")
+
+	sb.WriteString("## 5. Differentiated Learning Pathways\n")
+	sb.WriteString("- **Scaffolded Support:** Bilingual graphic organizers, sentence starters, step-by-step visual prompts.\n")
+	sb.WriteString("- **Enrichment / Extension:** Open-ended IB Criterion D investigation creating novel mathematical models.\n\n")
+
+	sb.WriteString("## 6. IB Formative Assessment Rubric (Criterion A & C)\n")
+	sb.WriteString("- **Level 1-2 (Limited):** Demonstrates basic recall of terms with teacher prompts.\n")
+	sb.WriteString("- **Level 3-4 (Adequate):** Solves straightforward problems with partial accuracy.\n")
+	sb.WriteString("- **Level 5-6 (Substantial):** Consistently applies concepts to complex contexts.\n")
+	sb.WriteString("- **Level 7-8 (Excellent):** Evaluates, synthesizes, and constructs sophisticated explanations independently.\n")
+
+	return sb.String(), nil
+}
+
+func (m *MockLLMClient) generateCambridgeLessonPlan(req LessonPlanPromptRequest, duration int, blooms string) (string, error) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Cambridge Assessment International Education Plan: %s\n\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("**Pedagogical Framework:** Cambridge International Curriculum (CAIE)\n"))
+	sb.WriteString(fmt.Sprintf("**Subject:** %s  \n", req.Subject))
+	sb.WriteString(fmt.Sprintf("**Stage / Grade:** %s  \n", req.GradeLevel))
+	sb.WriteString(fmt.Sprintf("**Duration:** %d minutes  \n", duration))
+	sb.WriteString(fmt.Sprintf("**Cognitive Level:** %s  \n\n", blooms))
+
+	sb.WriteString("## 1. Learning Intentions & Success Criteria\n")
+	sb.WriteString(fmt.Sprintf("- **Learning Intention:** We are learning to master the core principles of **%s**.\n", req.Topic))
+	sb.WriteString("- **Success Criteria ('I Can' Statements):**\n")
+	sb.WriteString(fmt.Sprintf("  - *I can* state and explain the key rules governing **%s**.\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("  - *I can* solve structured Cambridge syllabus problems with step-by-step working.\n"))
+	sb.WriteString(fmt.Sprintf("  - *I can* justify my solutions during peer assessment.\n\n"))
+
+	sb.WriteString("## 2. Cambridge Learner Attributes & Active Learning Focus\n")
+	sb.WriteString("- **Confident:** Encouraging learners to explain solutions aloud.\n")
+	sb.WriteString("- **Responsible:** Self-directed checking against official Cambridge mark schemes.\n")
+	sb.WriteString("- **Reflective:** Active evaluation of personal misconceptions.\n")
+	sb.WriteString("- **Innovative & Engaged:** Hands-on active learning tasks.\n\n")
+
+	sb.WriteString("## 3. Active Learning Sequence & AfL Strategy\n\n")
+	sb.WriteString(fmt.Sprintf("### Phase 1: Starter Activity & Hinge Question (%d mins)\n", duration/6))
+	sb.WriteString(fmt.Sprintf("- Present a Cambridge syllabus diagnostic question on **%s**.\n", req.Topic))
+	sb.WriteString("- Use ABCD response cards to gauge baseline understanding immediately.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Phase 2: Active Instruction & Modeling (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- Teacher demonstrates step-by-step problem deconstruction for **%s**.\n", req.Topic))
+	sb.WriteString("- Highlight key examiner tips, common candidate mistakes, and keyword command verbs.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Phase 3: Collaborative Active Learning (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- Paired problem-solving using past Cambridge exam questions on **%s**.\n", req.Topic))
+	sb.WriteString("- Peer marking with official mark scheme rubrics.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Phase 4: Plenary & AfL Check (%d mins)\n", duration/6))
+	sb.WriteString("- Revisit Success Criteria; students rate mastery level (Red, Amber, Green).\n")
+	sb.WriteString(fmt.Sprintf("- Complete 2-minute exit slip assessing key formula/concept for **%s**.\n\n", req.Topic))
+
+	sb.WriteString("## 4. Differentiation & Cambridge Access Accommodations\n")
+	sb.WriteString("- **Core Pathway:** Structured worksheets with visual cues and key vocabulary glossaries.\n")
+	sb.WriteString("- **Extended Pathway:** Multi-step past paper challenge problems requiring higher-order proof.\n\n")
+
+	sb.WriteString("## 5. Assessment for Learning (AfL) Rubric\n")
+	sb.WriteString("- **Formative:** Hinge diagnostic question, peer marking accuracy, plenary exit check.\n")
+	sb.WriteString("- **Summative Alignment:** Direct alignment with Cambridge checkpoint & end-of-stage assessments.\n")
+
+	return sb.String(), nil
+}
+
+func (m *MockLLMClient) generate5ELessonPlan(req LessonPlanPromptRequest, duration int, blooms string) (string, error) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# 5E Instructional Model Lesson Plan: %s\n\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("**Pedagogical Framework:** 5E Inquiry Model (Engage, Explore, Explain, Elaborate, Evaluate)\n"))
+	sb.WriteString(fmt.Sprintf("**Subject:** %s  \n", req.Subject))
+	sb.WriteString(fmt.Sprintf("**Grade Level:** %s  \n", req.GradeLevel))
+	sb.WriteString(fmt.Sprintf("**Duration:** %d minutes  \n", duration))
+	sb.WriteString(fmt.Sprintf("**Webb's DOK / Bloom's:** %s  \n\n", blooms))
+
+	sb.WriteString("## 1. Learning Objectives & DOK Depth\n")
+	sb.WriteString(fmt.Sprintf("- **Engage & Explore:** Observe and manipulate representations of **%s**.\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("- **Explain & Elaborate:** Formulate scientific/mathematical explanations for **%s**.\n", req.Topic))
+	sb.WriteString("- **Evaluate:** Demonstrate mastery through evidence-based problem solving.\n\n")
+
+	sb.WriteString("## 2. 5E Instructional Sequence\n\n")
+	sb.WriteString(fmt.Sprintf("### 1. Engage (%d mins)\n", duration/10))
+	sb.WriteString(fmt.Sprintf("- Present an unexpected phenomenon or puzzle demonstrating **%s**.\n", req.Topic))
+	sb.WriteString("- Elicit student predictions without revealing answers.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### 2. Explore (%d mins)\n", duration/4))
+	sb.WriteString(fmt.Sprintf("- Hands-on group investigation using models, simulations, or manipulative data for **%s**.\n", req.Topic))
+	sb.WriteString("- Students test hypotheses and record observations.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### 3. Explain (%d mins)\n", duration/4))
+	sb.WriteString(fmt.Sprintf("- Students share group findings; teacher introduces formal terminology and mechanics of **%s**.\n", req.Topic))
+	sb.WriteString("- Clear visual representation on the whiteboard.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### 4. Elaborate (%d mins)\n", duration/4))
+	sb.WriteString(fmt.Sprintf("- Apply newly acquired concepts of **%s** to a novel real-world scenario.\n", req.Topic))
+	sb.WriteString("- Differentiated challenge activities in pairs.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### 5. Evaluate (%d mins)\n", duration/10))
+	sb.WriteString("- Students complete formative exit assessment demonstrating mastery.\n")
+	sb.WriteString("- Self-reflection on learning progression.\n\n")
+
+	sb.WriteString("## 3. Universal Differentiation Strategies\n")
+	sb.WriteString("- **Scaffolded Supports:** Sentence frames, visual diagrams, tactile manipulatives.\n")
+	sb.WriteString("- **Extensions:** Complex multi-variable problem scenarios.\n\n")
+
+	sb.WriteString("## 4. Assessment Rubric\n")
+	sb.WriteString("- **Formative:** Exploration lab notes, explanation accuracy, 5E evaluation score.\n")
+
+	return sb.String(), nil
+}
+
+func (m *MockLLMClient) generateUDLLessonPlan(req LessonPlanPromptRequest, duration int, blooms string) (string, error) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Universal Design for Learning (UDL) Plan: %s\n\n", req.Topic))
+	sb.WriteString(fmt.Sprintf("**Pedagogical Framework:** Universal Design for Learning (UDL Guidelines 2.2)\n"))
+	sb.WriteString(fmt.Sprintf("**Subject:** %s  \n", req.Subject))
+	sb.WriteString(fmt.Sprintf("**Grade Level:** %s  \n", req.GradeLevel))
+	sb.WriteString(fmt.Sprintf("**Duration:** %d minutes  \n", duration))
+	sb.WriteString(fmt.Sprintf("**Cognitive Level:** %s  \n\n", blooms))
+
+	sb.WriteString("## 1. UDL Core Guidelines Alignment\n")
+	sb.WriteString("- **Multiple Means of Engagement (Why of Learning):** Choice of topic contexts, gamified check-ins, collaborative goal setting.\n")
+	sb.WriteString("- **Multiple Means of Representation (What of Learning):** Dual-coding (visuals + text + audio explanation), bilingual vocabulary glossaries.\n")
+	sb.WriteString("- **Multiple Means of Action & Expression (How of Learning):** Choice of output (written, oral presentation, diagram, or digital model).\n\n")
+
+	sb.WriteString("## 2. Inclusive Instructional Timeline\n\n")
+	sb.WriteString(fmt.Sprintf("### Phase 1: Flexible Warm-Up & Goal Setting (%d mins)\n", duration/6))
+	sb.WriteString(fmt.Sprintf("- Present lesson goal for **%s** using multimodal media (video/diagram/text).\n", req.Topic))
+	sb.WriteString("- Students select personal learning targets.\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Phase 2: Differentiated Input & Modeling (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- Multimodal explanation of **%s** with interactive diagrams, tactile tools, and bilingual key terms.\n", req.Topic))
+
+	sb.WriteString(fmt.Sprintf("### Phase 3: Flexible Guided Practice (%d mins)\n", duration/3))
+	sb.WriteString(fmt.Sprintf("- Collaborative practice on **%s** with choice of working format (paired, solo, teacher-guided group).\n", req.Topic))
+
+	sb.WriteString(fmt.Sprintf("### Phase 4: Flexible Expression & Exit Assessment (%d mins)\n", duration/6))
+	sb.WriteString(fmt.Sprintf("- Students demonstrate understanding of **%s** via choice of format (exit card, audio recording, or visual sketch).\n", req.Topic))
+
+	sb.WriteString("## 3. Comprehensive Accessibility & Accommodations\n")
+	sb.WriteString("- **ESL / ELL Support:** Bilingual Burmese-English glossaries and visual infographics.\n")
+	sb.WriteString("- **Neurodiverse Accommodations:** Pacing breaks, graphic organizers, clear step-by-step checklists.\n\n")
+
+	sb.WriteString("## 4. UDL Evaluation Rubric\n")
+	sb.WriteString("- **Assessment:** Flexible demonstration of competency with rubric evaluating conceptual understanding over formatting.\n")
 
 	return sb.String(), nil
 }

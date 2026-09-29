@@ -37,6 +37,10 @@ import {
   Printer,
   Radio,
   Trash2,
+  Globe,
+  Award,
+  GraduationCap,
+  HelpCircle,
 } from 'lucide-react';
 
 // Lightweight crisp Markdown renderer for lesson plan preview
@@ -185,6 +189,21 @@ const INITIAL_PIPELINE_STEPS: Array<{
   { step: 7, name: 'Library & Event Bus', status: 'idle', detail: 'Save to lesson library & publish LessonCreatedEvent' },
 ];
 
+export const PEDAGOGICAL_FRAMEWORKS = [
+  { id: 'moe', name: 'Myanmar MoE National Standard', badge: '🇲🇲 MoE Standard', description: '5-Phase instructional sequence aligned with National KG+12 curriculum framework.' },
+  { id: 'ib_pyp_myp', name: 'IB World School Framework', badge: '🌐 IB PYP/MYP', description: 'Inquiry Cycle, Statement of Inquiry, Global Contexts, ATL Skills & Criterion rubrics.' },
+  { id: 'cambridge', name: 'Cambridge International (CAIE)', badge: '🇬🇧 Cambridge Active', description: 'Active Learning, Success Criteria ("I Can"), Hinge Questions & Assessment for Learning (AfL).' },
+  { id: 'model_5e', name: '5E Instructional Model', badge: '🔬 5E Inquiry', description: 'Engage, Explore, Explain, Elaborate, and Evaluate with Webb\'s Depth of Knowledge (DOK).' },
+  { id: 'udl', name: 'Universal Design for Learning', badge: '♿ UDL 2.2 Framework', description: 'Multiple Means of Engagement, Representation, Action & Expression with accessibility.' },
+];
+
+export const BLOOMS_TAXONOMY_OPTIONS = [
+  'Remember & Understand (အခြေခံ အမှတ်ရမှုနှင့် နားလည်မှု)',
+  'Apply (လက်တွေ့ အသုံးချမှု အဆင့်)',
+  'Analyze & Evaluate (ဆန်းစစ် သုံးသပ်မှု အဆင့်)',
+  'Create & Synthesize (တီထွင် ဆန်းသစ်မှု အဆင့်)',
+];
+
 export const STANDARD_GRADE_LEVELS = [
   'KG',
   'Grade 1',
@@ -256,6 +275,8 @@ export const CopilotPage: React.FC = () => {
     grade_level: 'Grade 8',
     topic: 'Pythagorean Theorem and Real-World Distance Calculations',
     duration_minutes: 45,
+    pedagogical_framework: 'moe',
+    blooms_level: 'Apply (လက်တွေ့ အသုံးချမှု အဆင့်)',
   });
 
   const [generating, setGenerating] = useState(false);
@@ -265,8 +286,8 @@ export const CopilotPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Active view tab: 'studio' | 'grounding' | 'validation'
-  const [activeTab, setActiveTab] = useState<'studio' | 'grounding' | 'validation'>('studio');
+  // Active view tab: 'studio' | 'grounding' | 'validation' | 'global_standards'
+  const [activeTab, setActiveTab] = useState<'studio' | 'grounding' | 'validation' | 'global_standards'>('studio');
 
   // Pipeline stepper state
   const [pipelineSteps, setPipelineSteps] = useState(INITIAL_PIPELINE_STEPS);
@@ -497,13 +518,22 @@ export const CopilotPage: React.FC = () => {
     }
   };
 
-  const setPreset = (subject: string, grade: string, topic: string, duration: number) => {
+  const setPreset = (
+    subject: string,
+    grade: string,
+    topic: string,
+    duration: number,
+    framework = 'moe',
+    blooms = 'Apply (လက်တွေ့ အသုံးချမှု အဆင့်)'
+  ) => {
     setIsCustomSubject(false);
     setFormData({
       subject,
       grade_level: grade,
       topic,
       duration_minutes: duration,
+      pedagogical_framework: framework,
+      blooms_level: blooms,
     });
   };
 
@@ -570,7 +600,7 @@ export const CopilotPage: React.FC = () => {
             {/* Quick Presets */}
             <div className="mb-4">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                Curriculum Intent Presets
+                Global Curriculum Intent Presets
               </span>
               <div className="flex flex-wrap gap-1.5">
                 <button
@@ -580,13 +610,14 @@ export const CopilotPage: React.FC = () => {
                       'Mathematics',
                       'Grade 5',
                       'Fractions, 45-min lesson (Addition & Subtraction of Unlike Denominators)',
-                      45
+                      45,
+                      'moe',
+                      'Apply (လက်တွေ့ အသုံးချမှု အဆင့်)'
                     )
                   }
                   className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition font-semibold border border-indigo-200 shadow-xs flex items-center gap-1"
                 >
-                  <Sparkles className="h-3 w-3 text-indigo-600" />
-                  Grade 5 Math: Fractions (45 min)
+                  🇲🇲 G5 Math (MoE 5-Phase)
                 </button>
                 <button
                   type="button"
@@ -594,13 +625,15 @@ export const CopilotPage: React.FC = () => {
                     setPreset(
                       'Mathematics',
                       'Grade 8',
-                      'Pythagorean Theorem & Geometric Proofs (a² + b² = c²)',
-                      45
+                      'Pythagorean Theorem & Real-World Distance Calculations',
+                      45,
+                      'ib_pyp_myp',
+                      'Analyze & Evaluate (ဆန်းစစ် သုံးသပ်မှု အဆင့်)'
                     )
                   }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition font-semibold border border-emerald-200 shadow-xs flex items-center gap-1"
                 >
-                  📐 Math (Grade 8)
+                  🌐 IB MYP G8 Math (Inquiry)
                 </button>
                 <button
                   type="button"
@@ -609,26 +642,30 @@ export const CopilotPage: React.FC = () => {
                       'General Science',
                       'Grade 9',
                       'Photosynthesis Mechanism and Light Energy Reactions',
-                      50
+                      50,
+                      'cambridge',
+                      'Analyze & Evaluate (ဆန်းစစ် သုံးသပ်မှု အဆင့်)'
                     )
                   }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 transition font-semibold border border-sky-200 shadow-xs flex items-center gap-1"
                 >
-                  🔬 Science (Grade 9)
+                  🇬🇧 Cambridge G9 Science (CAIE)
                 </button>
                 <button
                   type="button"
                   onClick={() =>
                     setPreset(
-                      'Myanmar Literature',
-                      'Grade 8',
-                      'စကားပြေ အရေးအသားနှင့် ဝါကျဖွဲ့ထုံး လေ့လာခြင်း',
-                      45
+                      'Biology',
+                      'Grade 10',
+                      'Cellular Respiration and ATP Energy Transfer',
+                      50,
+                      'model_5e',
+                      'Create & Synthesize (တီထွင် ဆန်းသစ်မှု အဆင့်)'
                     )
                   }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 transition font-medium border border-amber-200"
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-800 transition font-semibold border border-purple-200 shadow-xs flex items-center gap-1"
                 >
-                  🇲🇲 မြန်မာစာ (Grade 8)
+                  🔬 5E Model Biology
                 </button>
                 <button
                   type="button"
@@ -637,12 +674,14 @@ export const CopilotPage: React.FC = () => {
                       'English Literature',
                       'Grade 7',
                       'Writing Persuasive Paragraphs with Supporting Evidence',
-                      40
+                      40,
+                      'udl',
+                      'Apply (လက်တွေ့ အသုံးချမှု အဆင့်)'
                     )
                   }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 transition font-semibold border border-amber-200 shadow-xs flex items-center gap-1"
                 >
-                  📖 English (Grade 7)
+                  ♿ UDL English (Inclusive)
                 </button>
               </div>
             </div>
@@ -721,6 +760,45 @@ export const CopilotPage: React.FC = () => {
                     className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
+              </div>
+
+              {/* Pedagogical Framework Selector */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Global Pedagogical Framework / သင်ကြားရေး စံနှုန်း
+                </label>
+                <select
+                  value={formData.pedagogical_framework || 'moe'}
+                  onChange={(e) => setFormData({ ...formData, pedagogical_framework: e.target.value })}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  {PEDAGOGICAL_FRAMEWORKS.map((fw) => (
+                    <option key={fw.id} value={fw.id}>
+                      {fw.badge} — {fw.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {PEDAGOGICAL_FRAMEWORKS.find((f) => f.id === (formData.pedagogical_framework || 'moe'))?.description}
+                </p>
+              </div>
+
+              {/* Cognitive Taxonomy Target */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Cognitive Depth (Bloom's Taxonomy / Webb's DOK)
+                </label>
+                <select
+                  value={formData.blooms_level || BLOOMS_TAXONOMY_OPTIONS[1]}
+                  onChange={(e) => setFormData({ ...formData, blooms_level: e.target.value })}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  {BLOOMS_TAXONOMY_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -933,6 +1011,17 @@ export const CopilotPage: React.FC = () => {
                       {validationReport.overall_score}%
                     </span>
                   )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('global_standards')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    activeTab === 'global_standards'
+                      ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Globe className="h-3.5 w-3.5 text-sky-600" />
+                  Global Standards Alignment
                 </button>
               </div>
 
@@ -1242,6 +1331,97 @@ export const CopilotPage: React.FC = () => {
                     Validation report will appear after executing the RAG generation pipeline.
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* TAB 4: GLOBAL INTERNATIONAL SCHOOL STANDARDS & ALIGNMENT MATRIX */}
+            {activeTab === 'global_standards' && (
+              <div className="p-6 space-y-6 overflow-y-auto max-h-[640px]">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Globe className="h-5 w-5 text-sky-600" />
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      International Schools AI Lesson Copilot Alignment Matrix
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Benchmarked against elite global K-12 EdTech practices (e.g. IB World Schools, Cambridge CAIE, 5E Inquiry, UDL Guidelines, and UNESCO AI Competency Framework for Teachers).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* IB World School */}
+                  <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-indigo-700" />
+                      <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">
+                        1. IB World School (PYP / MYP)
+                      </h4>
+                    </div>
+                    <ul className="text-xs text-slate-700 space-y-1.5 list-disc pl-4 leading-relaxed">
+                      <li><strong>Statement of Inquiry & Concepts:</strong> Connects core topics to global contexts and key/related concepts.</li>
+                      <li><strong>Inquiry Questions:</strong> Structured into Factual, Conceptual, and Debatable questions.</li>
+                      <li><strong>ATL Skills:</strong> Explicitly builds Thinking, Communication, Social, Self-Management, and Research skills.</li>
+                      <li><strong>Criterion Rubrics:</strong> 8-level criterion-referenced assessment descriptors (Criteria A-D).</li>
+                    </ul>
+                  </div>
+
+                  {/* Cambridge CAIE */}
+                  <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/40 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="h-4 w-4 text-sky-700" />
+                      <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wider">
+                        2. Cambridge International (CAIE)
+                      </h4>
+                    </div>
+                    <ul className="text-xs text-slate-700 space-y-1.5 list-disc pl-4 leading-relaxed">
+                      <li><strong>Learning Intentions & Success Criteria:</strong> Actionable "I Can" statements aligned with exam specifications.</li>
+                      <li><strong>Active Learning & AfL:</strong> Hinge questions, ABCD response cards, and peer marking with mark schemes.</li>
+                      <li><strong>Learner Attributes:</strong> Develops Confident, Responsible, Reflective, Innovative, and Engaged learners.</li>
+                    </ul>
+                  </div>
+
+                  {/* 5E Inquiry & DOK */}
+                  <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/40 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-purple-700" />
+                      <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wider">
+                        3. 5E Model & Webb's DOK
+                      </h4>
+                    </div>
+                    <ul className="text-xs text-slate-700 space-y-1.5 list-disc pl-4 leading-relaxed">
+                      <li><strong>5-Phase Sequence:</strong> Engage, Explore, Explain, Elaborate, and Evaluate.</li>
+                      <li><strong>Webb's Depth of Knowledge (DOK):</strong> Progresses from DOK 1 Recall to DOK 4 Extended Critical Thinking.</li>
+                      <li><strong>Phenomenon-Based Inquiry:</strong> Driven by real-world scientific and mathematical puzzles.</li>
+                    </ul>
+                  </div>
+
+                  {/* UDL Accessibility */}
+                  <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Award className="h-4 w-4 text-amber-700" />
+                      <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                        4. Universal Design for Learning (UDL 2.2)
+                      </h4>
+                    </div>
+                    <ul className="text-xs text-slate-700 space-y-1.5 list-disc pl-4 leading-relaxed">
+                      <li><strong>Multimodal Representation:</strong> Visual, auditory, and tactile modalities with bilingual glossaries.</li>
+                      <li><strong>Flexible Expression:</strong> Students choose output format (written, oral, diagram, or digital model).</li>
+                      <li><strong>Inclusive Access:</strong> Tiered accommodations for ELL/ESL and neurodiverse students.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* UNESCO Framework Badge */}
+                <div className="p-4 rounded-xl bg-slate-900 text-white border border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2 text-amber-300 font-bold text-xs uppercase tracking-wider">
+                    <ShieldCheck className="h-4 w-4 text-amber-400" />
+                    UNESCO AI Competency Framework for Teachers (2024 Alignment)
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    This platform adheres strictly to UNESCO's ethical AI directives: Human-in-the-loop teacher agency (teachers retain full review & edit rights), zero raw LLM ungrounded output (RAG vector retrieval grounding), child safeguarding filters, and sovereign data privacy.
+                  </p>
+                </div>
               </div>
             )}
           </div>

@@ -81,6 +81,39 @@ func TestMockLLMClientGenerateLessonPlanBurmese(t *testing.T) {
 	}
 }
 
+func TestMockLLMClientFrameworks(t *testing.T) {
+	client := NewMockLLMClient()
+
+	frameworks := []struct {
+		code             string
+		expectedSubstring string
+	}{
+		{"ib_pyp_myp", "IB World School"},
+		{"cambridge", "Cambridge Assessment International Education"},
+		{"model_5e", "5E Instructional Model"},
+		{"udl", "Universal Design for Learning"},
+	}
+
+	for _, f := range frameworks {
+		req := LessonPlanPromptRequest{
+			Subject:              "General Science",
+			GradeLevel:           "Grade 9",
+			Topic:                "Photosynthesis Mechanism",
+			DurationMinutes:      50,
+			PedagogicalFramework: f.code,
+			BloomsLevel:          "Analyze",
+		}
+
+		plan, err := client.GenerateLessonPlan(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error for framework %s: %v", f.code, err)
+		}
+		if !strings.Contains(plan, f.expectedSubstring) {
+			t.Errorf("expected plan for %s to contain %q", f.code, f.expectedSubstring)
+		}
+	}
+}
+
 func TestLLMClientFactory(t *testing.T) {
 	// Test mock fallback
 	c1 := NewLLMClientFactory("unknown", "", "", "")

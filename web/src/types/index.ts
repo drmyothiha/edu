@@ -351,6 +351,86 @@ export interface LessonPlanRequest {
   grade_level: string;
   topic: string;
   duration_minutes: number;
+  pedagogical_framework?: string; // 'moe' | 'ib_pyp_myp' | 'cambridge' | 'model_5e' | 'udl'
+  blooms_level?: string;
+}
+
+export interface CurriculumChunkDTO {
+  id: string;
+  standard_code: string;
+  framework: string;
+  subject: string;
+  grade_level: string;
+  unit_title: string;
+  topic: string;
+  competency: string;
+  learning_outcomes: string;
+  pedagogical_activities: string;
+  blooms_level: string;
+  content_burmese: string;
+  keywords: string[];
+  similarity_score: number;
+}
+
+export interface PriorLessonPlanSummaryDTO {
+  id: string;
+  topic: string;
+  subject: string;
+  grade_level: string;
+  duration_minutes: number;
+  key_learnings: string;
+  similarity_score: number;
+  created_at: string;
+}
+
+export interface StudentPerformanceSummaryDTO {
+  competency: string;
+  benchmark_score: number;
+  mastery_status: string;
+  class_average: number;
+  at_risk_count: number;
+  pedagogical_need: string;
+  relevance_score: number;
+}
+
+export interface ValidationCheckDTO {
+  name: string;
+  status: string;
+  score: number;
+  details: string;
+}
+
+export interface ValidationReportDTO {
+  curriculum_alignment: ValidationCheckDTO;
+  readability_score: ValidationCheckDTO;
+  language_safety_filter: ValidationCheckDTO;
+  overall_status: string;
+  overall_score: number;
+  timestamp: string;
+}
+
+export interface RAGMetadataDTO {
+  query_embedding_dimension: number;
+  encoder_model: string;
+  retrieved_curriculum_chunks: CurriculumChunkDTO[];
+  retrieved_prior_plans: PriorLessonPlanSummaryDTO[];
+  retrieved_student_performance: StudentPerformanceSummaryDTO[];
+  validation_report: ValidationReportDTO;
+  system_prompt_tokens_estimate: number;
+  context_tokens_estimate: number;
+  grounding_confidence_score: number;
+  bloom_taxonomy_target: string;
+  event_published: boolean;
+  event_id?: string;
+}
+
+export interface RAGPipelineStepEventDTO {
+  step: number;
+  step_name: string;
+  status: string;
+  message: string;
+  data?: any;
+  timestamp: string;
 }
 
 export interface LessonPlanResponse {
@@ -363,6 +443,7 @@ export interface LessonPlanResponse {
   generated_markdown: string;
   generated_markdown_burmese?: string;
   created_at: string;
+  rag_metadata?: RAGMetadataDTO;
 }
 
 export interface ApiError {
@@ -626,7 +707,7 @@ export interface CreateAnnouncementRequest {
 export interface NotificationDTO {
   id: string;
   user_id: string;
-  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'general';
+  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'lesson_created' | 'general';
   title: string;
   body: string;
   data: Record<string, any>;

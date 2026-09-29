@@ -436,10 +436,89 @@ class ApiClient {
     listLessonPlans: (): Promise<LessonPlanResponse[]> =>
       this.request<LessonPlanResponse[]>('/copilot/lesson-plans'),
 
+    getLessonPlan: (id: string): Promise<LessonPlanResponse> =>
+      this.request<LessonPlanResponse>(`/copilot/lesson-plans/${id}`),
+
     translateLessonPlan: (id: string): Promise<LessonPlanResponse> =>
       this.request<LessonPlanResponse>(`/copilot/lesson-plan/${id}/translate`, {
         method: 'POST',
       }),
+
+    deleteLessonPlan: (id: string): Promise<{ message: string }> =>
+      this.request<{ message: string }>(`/copilot/lesson-plans/${id}`, {
+        method: 'DELETE',
+      }),
+
+    streamLessonPlan: async (
+      data: LessonPlanRequest,
+      onEvent: (eventType: string, eventData: any) => void,
+      signal?: AbortSignal
+    ): Promise<LessonPlanResponse> => {
+      const base = getApiBase();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('edu_auth_token') : null;
+      const response = await fetch(`${base}/copilot/lesson-plan/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(data),
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new ApiClientError(`Stream failed with status ${response.status}`, response.status);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Response body reader unresolvable');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalPlan: LessonPlanResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const block of lines) {
+          if (!block.trim()) continue;
+          let eventType = 'message';
+          let eventDataRaw = '';
+
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              eventDataRaw += line.slice(6);
+            }
+          }
+
+          if (eventDataRaw) {
+            try {
+              const parsed = JSON.parse(eventDataRaw);
+              if (eventType === 'complete') {
+                finalPlan = parsed as LessonPlanResponse;
+              }
+              onEvent(eventType, parsed);
+            } catch {
+              // ignore JSON parse error for raw text chunks
+            }
+          }
+        }
+      }
+
+      if (!finalPlan) {
+        throw new Error('Stream ended without complete payload');
+      }
+
+      return finalPlan;
+    },
   };
 
   // Direct Teacher-Parent Messaging & Chat
