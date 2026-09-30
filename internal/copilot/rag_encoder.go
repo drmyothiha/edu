@@ -3,8 +3,6 @@ package copilot
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -194,16 +192,32 @@ func (e *SemanticDenseEncoder) generateDenseVector(text string) []float64 {
 	return vec
 }
 
+// fnv64a computes a fast 64-bit non-cryptographic FNV-1a hash of a string
+// without string-to-bytes slice allocation overhead.
+func fnv64a(s string) uint64 {
+	const offset64 = 14695981039346656037
+	const prime64 = 1099511628211
+	h := uint64(offset64)
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= prime64
+	}
+	return h
+}
+
 func hashIntoVector(vec []float64, token string, weight float64) {
-	h := sha256.Sum256([]byte(token))
-	idx1 := int(binary.BigEndian.Uint32(h[0:4])) % len(vec)
-	idx2 := int(binary.BigEndian.Uint32(h[4:8])) % len(vec)
+	h := fnv64a(token)
+
+	// Derive 2 feature indices and signs from 64-bit hash bits
+	idx1 := int(h & 0xFFFFFFFF) % len(vec)
+	idx2 := int((h >> 32) & 0xFFFFFFFF) % len(vec)
+
 	sign1 := 1.0
-	if h[8]&1 == 0 {
+	if (h & (1 << 16)) == 0 {
 		sign1 = -1.0
 	}
 	sign2 := 1.0
-	if h[9]&1 == 0 {
+	if (h & (1 << 48)) == 0 {
 		sign2 = -1.0
 	}
 
