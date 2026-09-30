@@ -433,8 +433,92 @@ class ApiClient {
         body: JSON.stringify(data),
       }),
 
+    streamLessonPlan: async (
+      data: LessonPlanRequest,
+      onEvent: (eventType: string, data: any) => void,
+      signal?: AbortSignal
+    ): Promise<LessonPlanResponse> => {
+      const token = localStorage.getItem('edu_auth_token');
+      const base = getApiBase();
+      const response = await fetch(`${base}/copilot/lesson-plan/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(data),
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new ApiClientError(`Streaming failed with status ${response.status}`, response.status);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let completedPlan: LessonPlanResponse | null = null;
+      let buffer = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const part of parts) {
+            const lines = part.split('\n');
+            let eventType = 'message';
+            let eventDataStr = '';
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                eventType = line.slice(7).trim();
+              } else if (line.startsWith('data: ')) {
+                eventDataStr += line.slice(6);
+              }
+            }
+
+            if (eventDataStr) {
+              try {
+                const parsedData = JSON.parse(eventDataStr);
+                onEvent(eventType, parsedData);
+                if (eventType === 'complete') {
+                  completedPlan = parsedData as LessonPlanResponse;
+                }
+              } catch {
+                // ignore invalid json chunks
+              }
+            }
+          }
+        }
+      }
+
+      if (!completedPlan) {
+        throw new Error('Streaming ended without complete lesson plan payload');
+      }
+
+      return completedPlan;
+    },
+
+    getLessonPlan: (id: string): Promise<LessonPlanResponse> =>
+      this.request<LessonPlanResponse>(`/copilot/lesson-plans/${id}`),
+
     listLessonPlans: (): Promise<LessonPlanResponse[]> =>
       this.request<LessonPlanResponse[]>('/copilot/lesson-plans'),
+
+    updateLessonPlan: (id: string, data: { topic?: string; duration_minutes?: number; generated_markdown?: string; generated_markdown_burmese?: string }): Promise<LessonPlanResponse> =>
+      this.request<LessonPlanResponse>(`/copilot/lesson-plans/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteLessonPlan: (id: string): Promise<{ message: string; id: string }> =>
+      this.request<{ message: string; id: string }>(`/copilot/lesson-plans/${id}`, {
+        method: 'DELETE',
+      }),
 
     translateLessonPlan: (id: string): Promise<LessonPlanResponse> =>
       this.request<LessonPlanResponse>(`/copilot/lesson-plan/${id}/translate`, {

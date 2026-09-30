@@ -9,13 +9,23 @@ import (
 	"edu-platform/internal/database"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// UpdateLessonPlanRequest represents payload to save edited content of a lesson plan
+type UpdateLessonPlanRequest struct {
+	Topic                    string `json:"topic"`
+	DurationMinutes          int32  `json:"duration_minutes"`
+	GeneratedMarkdown        string `json:"generated_markdown"`
+	GeneratedMarkdownBurmese string `json:"generated_markdown_burmese"`
+}
 
 // LessonPlanResponse represents the generated lesson plan payload with RAG metadata
 type LessonPlanResponse struct {
 	ID                       uuid.UUID    `json:"id"`
 	TeacherID                uuid.UUID    `json:"teacher_id"`
+	SchoolID                 *uuid.UUID   `json:"school_id,omitempty"`
 	Subject                  string       `json:"subject"`
 	GradeLevel               string       `json:"grade_level"`
 	Topic                    string       `json:"topic"`
@@ -60,8 +70,8 @@ func (s *Service) InitRAG(pool *pgxpool.Pool, encoder QueryEncoder, publisher Ev
 }
 
 // GenerateLessonPlan executes the 7-step RAG Pipeline
-func (s *Service) GenerateLessonPlan(ctx context.Context, teacherID uuid.UUID, req LessonPlanPromptRequest) (*LessonPlanResponse, error) {
-	result, err := s.pipeline.Execute(ctx, teacherID, req)
+func (s *Service) GenerateLessonPlan(ctx context.Context, teacherID uuid.UUID, schoolID *uuid.UUID, req LessonPlanPromptRequest) (*LessonPlanResponse, error) {
+	result, err := s.pipeline.Execute(ctx, teacherID, schoolID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +79,7 @@ func (s *Service) GenerateLessonPlan(ctx context.Context, teacherID uuid.UUID, r
 	return &LessonPlanResponse{
 		ID:                       result.ID,
 		TeacherID:                result.TeacherID,
+		SchoolID:                 schoolID,
 		Subject:                  result.Subject,
 		GradeLevel:               result.GradeLevel,
 		Topic:                    result.Topic,
@@ -81,8 +92,8 @@ func (s *Service) GenerateLessonPlan(ctx context.Context, teacherID uuid.UUID, r
 }
 
 // GenerateLessonPlanStream executes the 7-step RAG pipeline streaming real-time SSE events
-func (s *Service) GenerateLessonPlanStream(ctx context.Context, teacherID uuid.UUID, req LessonPlanPromptRequest, emit SSEEventWriter) (*LessonPlanResponse, error) {
-	result, err := s.pipeline.ExecuteStream(ctx, teacherID, req, emit)
+func (s *Service) GenerateLessonPlanStream(ctx context.Context, teacherID uuid.UUID, schoolID *uuid.UUID, req LessonPlanPromptRequest, emit SSEEventWriter) (*LessonPlanResponse, error) {
+	result, err := s.pipeline.ExecuteStream(ctx, teacherID, schoolID, req, emit)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +101,7 @@ func (s *Service) GenerateLessonPlanStream(ctx context.Context, teacherID uuid.U
 	return &LessonPlanResponse{
 		ID:                       result.ID,
 		TeacherID:                result.TeacherID,
+		SchoolID:                 schoolID,
 		Subject:                  result.Subject,
 		GradeLevel:               result.GradeLevel,
 		Topic:                    result.Topic,
@@ -129,9 +141,16 @@ func (s *Service) GetLessonPlan(ctx context.Context, id uuid.UUID) (*LessonPlanR
 		EventPublished:              true,
 	}
 
+	var sID *uuid.UUID
+	if plan.SchoolID.Valid {
+		id := uuid.UUID(plan.SchoolID.Bytes)
+		sID = &id
+	}
+
 	return &LessonPlanResponse{
 		ID:                       plan.ID,
 		TeacherID:                plan.TeacherID,
+		SchoolID:                 sID,
 		Subject:                  plan.Subject,
 		GradeLevel:               plan.GradeLevel,
 		Topic:                    plan.Topic,
@@ -153,10 +172,17 @@ func (s *Service) TranslateLessonPlan(ctx context.Context, id uuid.UUID) (*Lesso
 		return nil, fmt.Errorf("failed to get lesson plan: %w", err)
 	}
 
+	var sID *uuid.UUID
+	if plan.SchoolID.Valid {
+		id := uuid.UUID(plan.SchoolID.Bytes)
+		sID = &id
+	}
+
 	if plan.GeneratedMarkdownBurmese != "" {
 		return &LessonPlanResponse{
 			ID:                       plan.ID,
 			TeacherID:                plan.TeacherID,
+			SchoolID:                 sID,
 			Subject:                  plan.Subject,
 			GradeLevel:               plan.GradeLevel,
 			Topic:                    plan.Topic,
@@ -190,6 +216,7 @@ func (s *Service) TranslateLessonPlan(ctx context.Context, id uuid.UUID) (*Lesso
 	return &LessonPlanResponse{
 		ID:                       updated.ID,
 		TeacherID:                updated.TeacherID,
+		SchoolID:                 sID,
 		Subject:                  updated.Subject,
 		GradeLevel:               updated.GradeLevel,
 		Topic:                    updated.Topic,
@@ -200,18 +227,33 @@ func (s *Service) TranslateLessonPlan(ctx context.Context, id uuid.UUID) (*Lesso
 	}, nil
 }
 
-// ListLessonPlansByTeacher retrieves all lesson plans for a teacher
-func (s *Service) ListLessonPlansByTeacher(ctx context.Context, teacherID uuid.UUID) ([]LessonPlanResponse, error) {
-	plans, err := s.querier.ListLessonPlansByTeacherID(ctx, teacherID)
+// ListLessonPlansBySchool retrieves lesson plans for a school facility
+func (s *Service) ListLessonPlansBySchool(ctx context.Context, schoolID *uuid.UUID, teacherID uuid.UUID) ([]LessonPlanResponse, error) {
+	var plans []database.LessonPlan
+	var err error
+
+	if schoolID != nil {
+		pgSchoolID := pgtype.UUID{Bytes: *schoolID, Valid: true}
+		plans, err = s.querier.ListLessonPlansBySchoolID(ctx, pgSchoolID)
+	} else {
+		plans, err = s.querier.ListLessonPlansByTeacherID(ctx, teacherID)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to list lesson plans: %w", err)
 	}
 
 	res := make([]LessonPlanResponse, len(plans))
 	for i, plan := range plans {
+		var sID *uuid.UUID
+		if plan.SchoolID.Valid {
+			id := uuid.UUID(plan.SchoolID.Bytes)
+			sID = &id
+		}
 		res[i] = LessonPlanResponse{
 			ID:                       plan.ID,
 			TeacherID:                plan.TeacherID,
+			SchoolID:                 sID,
 			Subject:                  plan.Subject,
 			GradeLevel:               plan.GradeLevel,
 			Topic:                    plan.Topic,
@@ -222,6 +264,58 @@ func (s *Service) ListLessonPlansByTeacher(ctx context.Context, teacherID uuid.U
 		}
 	}
 	return res, nil
+}
+
+// ListLessonPlansByTeacher retrieves all lesson plans for a teacher (compatibility)
+func (s *Service) ListLessonPlansByTeacher(ctx context.Context, teacherID uuid.UUID) ([]LessonPlanResponse, error) {
+	return s.ListLessonPlansBySchool(ctx, nil, teacherID)
+}
+
+// UpdateLessonPlan updates lesson plan content (topic, duration, markdown, burmese markdown)
+func (s *Service) UpdateLessonPlan(ctx context.Context, id uuid.UUID, userID uuid.UUID, role string, req UpdateLessonPlanRequest) (*LessonPlanResponse, error) {
+	existing, err := s.querier.GetLessonPlanByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("lesson plan not found")
+		}
+		return nil, fmt.Errorf("failed to get lesson plan: %w", err)
+	}
+
+	if role != "admin" && role != "sysadmin" && existing.TeacherID != userID {
+		if !existing.SchoolID.Valid {
+			return nil, errors.New("access denied: cannot edit this lesson plan")
+		}
+	}
+
+	updated, err := s.querier.UpdateLessonPlanContent(ctx, database.UpdateLessonPlanContentParams{
+		ID:                       id,
+		Topic:                    req.Topic,
+		DurationMinutes:          req.DurationMinutes,
+		GeneratedMarkdown:        req.GeneratedMarkdown,
+		GeneratedMarkdownBurmese: req.GeneratedMarkdownBurmese,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update lesson plan: %w", err)
+	}
+
+	var sID *uuid.UUID
+	if updated.SchoolID.Valid {
+		id := uuid.UUID(updated.SchoolID.Bytes)
+		sID = &id
+	}
+
+	return &LessonPlanResponse{
+		ID:                       updated.ID,
+		TeacherID:                updated.TeacherID,
+		SchoolID:                 sID,
+		Subject:                  updated.Subject,
+		GradeLevel:               updated.GradeLevel,
+		Topic:                    updated.Topic,
+		DurationMinutes:          updated.DurationMinutes,
+		GeneratedMarkdown:        updated.GeneratedMarkdown,
+		GeneratedMarkdownBurmese: updated.GeneratedMarkdownBurmese,
+		CreatedAt:                updated.CreatedAt.Time,
+	}, nil
 }
 
 // ListCurriculumStandards retrieves available Myanmar MoE curriculum standards

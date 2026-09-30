@@ -346,6 +346,64 @@ export interface StudentOverviewResponse {
   pending_assignments: PendingAssignmentDTO[];
 }
 
+export interface CurriculumChunkDTO {
+  id?: string;
+  standard_code: string;
+  unit_title: string;
+  topic: string;
+  competency: string;
+  content_burmese?: string;
+  similarity_score?: number;
+}
+
+export interface PriorLessonPlanSummaryDTO {
+  id?: string;
+  subject: string;
+  grade_level: string;
+  topic: string;
+  duration_minutes: number;
+  key_learnings: string;
+  similarity_score: number;
+}
+
+export interface StudentPerformanceSummaryDTO {
+  competency: string;
+  mastery_status: string;
+  benchmark_score: number;
+  at_risk_count: number;
+  pedagogical_need: string;
+}
+
+export interface ValidationReportDTO {
+  overall_score: number;
+  overall_status: 'PASSED' | 'FLAGGED';
+  curriculum_alignment: { score: number; details: string; status: string };
+  readability_score: { score: number; details: string; status: string };
+  language_safety_filter: { score: number; details: string; status: string };
+  timestamp: string;
+}
+
+export interface RAGMetadataDTO {
+  query_embedding_dimension?: number;
+  encoder_model?: string;
+  retrieved_curriculum_chunks?: CurriculumChunkDTO[];
+  retrieved_prior_plans?: PriorLessonPlanSummaryDTO[];
+  retrieved_student_performance?: StudentPerformanceSummaryDTO[];
+  validation_report?: ValidationReportDTO;
+  grounding_confidence_score?: number;
+  bloom_taxonomy_target?: string;
+  event_published?: boolean;
+}
+
+export interface RAGPipelineStepEventDTO {
+  step: number;
+  step_name: string;
+  status: 'idle' | 'in_progress' | 'completed' | 'failed';
+  message: string;
+  data?: any;
+  timestamp: string;
+}
+
 export interface LessonPlanRequest {
   subject: string;
   grade_level: string;
@@ -356,6 +414,7 @@ export interface LessonPlanRequest {
 export interface LessonPlanResponse {
   id: string;
   teacher_id: string;
+  school_id?: string | null;
   subject: string;
   grade_level: string;
   topic: string;
@@ -363,6 +422,7 @@ export interface LessonPlanResponse {
   generated_markdown: string;
   generated_markdown_burmese?: string;
   created_at: string;
+  rag_metadata?: RAGMetadataDTO;
 }
 
 export interface ApiError {
@@ -626,7 +686,7 @@ export interface CreateAnnouncementRequest {
 export interface NotificationDTO {
   id: string;
   user_id: string;
-  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'general';
+  type: 'absence_alert' | 'announcement' | 'message' | 'assignment' | 'general' | 'lesson_created';
   title: string;
   body: string;
   data: Record<string, any>;

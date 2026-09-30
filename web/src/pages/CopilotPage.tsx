@@ -37,6 +37,17 @@ import {
   Printer,
   Radio,
   Trash2,
+  Save,
+  Edit3,
+  Heading1,
+  Heading2,
+  Bold,
+  Italic,
+  List,
+  Quote,
+  Table as TableIcon,
+  Building2,
+  Users,
 } from 'lucide-react';
 
 // Lightweight crisp Markdown renderer for lesson plan preview
@@ -265,6 +276,14 @@ export const CopilotPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Editable MS Word Style Studio state
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editedTopic, setEditedTopic] = useState<string>('');
+  const [editedContent, setEditedContent] = useState<string>('');
+  const [editedContentBurmese, setEditedContentBurmese] = useState<string>('');
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+
   // Active view tab: 'studio' | 'grounding' | 'validation'
   const [activeTab, setActiveTab] = useState<'studio' | 'grounding' | 'validation'>('studio');
 
@@ -289,6 +308,14 @@ export const CopilotPage: React.FC = () => {
   // Full Screen / Focus Mode for teacher reading & classroom projection
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const [textScale, setTextScale] = useState<number>(100);
+
+  useEffect(() => {
+    if (currentPlan) {
+      setEditedTopic(currentPlan.topic || '');
+      setEditedContent(currentPlan.generated_markdown || '');
+      setEditedContentBurmese(currentPlan.generated_markdown_burmese || '');
+    }
+  }, [currentPlan]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -322,6 +349,10 @@ export const CopilotPage: React.FC = () => {
     }
 
     setCurrentPlan(activePlan);
+    setEditedTopic(activePlan.topic || '');
+    setEditedContent(activePlan.generated_markdown || '');
+    setEditedContentBurmese(activePlan.generated_markdown_burmese || '');
+
     if (activePlan.rag_metadata) {
       setRetrievedChunks(activePlan.rag_metadata.retrieved_curriculum_chunks || []);
       setRetrievedPriorPlans(activePlan.rag_metadata.retrieved_prior_plans || []);
@@ -334,6 +365,7 @@ export const CopilotPage: React.FC = () => {
       try {
         const updated = await api.copilot.translateLessonPlan(plan.id);
         setCurrentPlan(updated);
+        setEditedContentBurmese(updated.generated_markdown_burmese || '');
         setHistory((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       } catch (err: any) {
         console.error('Failed to translate plan:', err);
@@ -359,6 +391,57 @@ export const CopilotPage: React.FC = () => {
   useEffect(() => {
     loadHistory();
   }, []);
+
+  // Save edited lesson plan to school facility context
+  const handleSavePlan = async () => {
+    if (!currentPlan) return;
+    setSaving(true);
+    setSaveSuccess(false);
+    setError(null);
+
+    try {
+      const updated = await api.copilot.updateLessonPlan(currentPlan.id, {
+        topic: editedTopic || currentPlan.topic,
+        duration_minutes: currentPlan.duration_minutes,
+        generated_markdown: editedContent,
+        generated_markdown_burmese: editedContentBurmese,
+      });
+
+      setCurrentPlan(updated);
+      setHistory((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save lesson plan to school context');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Insert MS Word style Markdown formatting into editor
+  const insertFormatting = (prefix: string, suffix: string = '') => {
+    const textarea = document.getElementById('lesson-editor-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const activeText = language === 'my' ? editedContentBurmese : editedContent;
+    const selectedText = activeText.substring(start, end) || 'text';
+    const replacement = `${prefix}${selectedText}${suffix}`;
+
+    const newText = activeText.substring(0, start) + replacement + activeText.substring(end);
+
+    if (language === 'my') {
+      setEditedContentBurmese(newText);
+    } else {
+      setEditedContent(newText);
+    }
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }, 50);
+  };
 
   // Delete a saved lesson plan with user confirmation
   const handleDeletePlan = async (id: string, e: React.MouseEvent) => {
@@ -440,6 +523,10 @@ export const CopilotPage: React.FC = () => {
       );
 
       setCurrentPlan(plan);
+      setEditedTopic(plan.topic || '');
+      setEditedContent(plan.generated_markdown || '');
+      setEditedContentBurmese(plan.generated_markdown_burmese || '');
+
       if (plan.rag_metadata) {
         setRetrievedChunks(plan.rag_metadata.retrieved_curriculum_chunks || []);
         setRetrievedPriorPlans(plan.rag_metadata.retrieved_prior_plans || []);
@@ -472,6 +559,7 @@ export const CopilotPage: React.FC = () => {
       try {
         const updated = await api.copilot.translateLessonPlan(currentPlan.id);
         setCurrentPlan(updated);
+        setEditedContentBurmese(updated.generated_markdown_burmese || '');
         setHistory((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         setLanguage('my');
       } catch (err: any) {
@@ -486,12 +574,14 @@ export const CopilotPage: React.FC = () => {
   };
 
   const handleCopy = () => {
-    if (currentPlan) {
-      const textToCopy =
-        language === 'my' && currentPlan.generated_markdown_burmese
-          ? currentPlan.generated_markdown_burmese
-          : currentPlan.generated_markdown;
-      navigator.clipboard.writeText(textToCopy);
+    const activeText = isEditing
+      ? language === 'my' ? editedContentBurmese : editedContent
+      : language === 'my' && currentPlan?.generated_markdown_burmese
+      ? currentPlan.generated_markdown_burmese
+      : currentPlan?.generated_markdown || displayContent;
+
+    if (activeText) {
+      navigator.clipboard.writeText(activeText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     }
@@ -513,9 +603,11 @@ export const CopilotPage: React.FC = () => {
   );
   const displayedHistory = filterScope === 'scoped' ? filteredHistory : history;
 
-  // Display content determination (streaming vs completed plan)
+  // Display content determination (streaming vs completed plan vs live edited content)
   const displayContent = generating && currentStreamingText
     ? currentStreamingText
+    : isEditing
+    ? language === 'my' ? editedContentBurmese : editedContent
     : currentPlan
     ? language === 'my' && currentPlan.generated_markdown_burmese
       ? currentPlan.generated_markdown_burmese
@@ -768,7 +860,8 @@ export const CopilotPage: React.FC = () => {
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                    <Building2 className="h-3.5 w-3.5 text-indigo-600" />
                     Saved Lesson Library
                   </h3>
                   <span className="text-[11px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700">
@@ -802,8 +895,17 @@ export const CopilotPage: React.FC = () => {
                 </div>
               </div>
 
+              <div className="mb-2.5 px-2.5 py-1.5 bg-indigo-50/80 border border-indigo-100 rounded-lg text-[11px] text-indigo-900 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
+                  <span>
+                    School Facility Context • Visible to all teachers in your school for <strong>{formData.grade_level}</strong>
+                  </span>
+                </span>
+              </div>
+
               {filterScope === 'scoped' && (
-                <div className="mb-2 px-2 py-1 bg-indigo-50/70 border border-indigo-100 rounded-md text-[11px] text-indigo-900 flex items-center justify-between">
+                <div className="mb-2 px-2 py-1 bg-slate-100 border border-slate-200 rounded-md text-[11px] text-slate-700 flex items-center justify-between">
                   <span className="truncate">
                     Filtered: <strong>{formData.grade_level}</strong> • <strong>{formData.subject}</strong>
                   </span>
@@ -854,6 +956,9 @@ export const CopilotPage: React.FC = () => {
                           </span>
                           <span>•</span>
                           <span>{h.duration_minutes}m</span>
+                          <span className="ml-1 bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.2 rounded text-[9px] font-semibold">
+                            🏫 School Facility
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
@@ -936,8 +1041,55 @@ export const CopilotPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Action Buttons: Language toggle & Copy */}
-              <div className="flex items-center gap-2">
+              {/* Action Buttons: Edit mode, Save, Language toggle & Copy */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {activeTab === 'studio' && currentPlan && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(!isEditing)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition border cursor-pointer ${
+                        isEditing
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                          : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                      title="Toggle MS Word style editor"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                      <span>{isEditing ? 'Preview' : 'Edit (MS Word)'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSavePlan}
+                      disabled={saving}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer ${
+                        saveSuccess
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50'
+                      }`}
+                      title="Save lesson plan with school context (Visible to other grade teachers)"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : saveSuccess ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 text-white" />
+                          <span>Saved!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-3.5 w-3.5" />
+                          <span>Save Plan</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+
                 <button
                   onClick={toggleLanguage}
                   disabled={translating || !currentPlan}
@@ -970,17 +1122,32 @@ export const CopilotPage: React.FC = () => {
                   onClick={() => setIsFullScreen(true)}
                   disabled={!currentPlan && !displayContent}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-xs font-semibold text-indigo-700 transition shadow-xs disabled:opacity-50 cursor-pointer"
-                  title="Full Screen Focus Mode (မျက်နှာပြင်ပြည့် အာရုံစိုက်ဖတ်ရှုရန်)"
+                  title="Full Screen Focus Mode"
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
-                  <span>Full Screen</span>
+                  <span className="hidden sm:inline">Focus</span>
                 </button>
               </div>
             </div>
 
-            {/* TAB 1: STUDIO MARKDOWN PREVIEW */}
+            {/* TAB 1: STUDIO MARKDOWN PREVIEW / MS WORD EDITOR */}
             {activeTab === 'studio' && (
-              <div className="p-6 flex-1 flex flex-col justify-between">
+              <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                {/* School Context Scoping Information Banner */}
+                {currentPlan && (
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-50/80 border border-indigo-200 text-xs text-indigo-900">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-indigo-700 flex-shrink-0" />
+                      <span>
+                        <strong>School Facility Context:</strong> Saved for this school facility. Visible to all teachers in this facility teaching <strong>{currentPlan.grade_level}</strong>.
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-white/80 px-2 py-0.5 rounded border border-indigo-200">
+                      <Users className="h-3 w-3" /> Shared {currentPlan.grade_level} Context
+                    </div>
+                  </div>
+                )}
+
                 {generating && !currentStreamingText ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-3">
                     <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
@@ -990,6 +1157,125 @@ export const CopilotPage: React.FC = () => {
                     <p className="text-xs text-slate-500 max-w-md">
                       Encoding query vector, querying Myanmar MoE curriculum store, synthesizing competency benchmarks, and assembling grounded prompt.
                     </p>
+                  </div>
+                ) : isEditing ? (
+                  /* MS WORD STYLE EDITABLE STUDIO */
+                  <div className="space-y-3 flex-1 flex flex-col">
+                    {/* Topic editor bar */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex-shrink-0">
+                        Topic:
+                      </label>
+                      <input
+                        type="text"
+                        value={editedTopic}
+                        onChange={(e) => setEditedTopic(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        placeholder="Lesson Plan Topic"
+                      />
+                    </div>
+
+                    {/* Rich MS Word Style Formatting Toolbar */}
+                    <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-100 border border-slate-200 rounded-t-xl text-xs">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 mr-1 flex items-center gap-1">
+                        <Edit3 className="h-3 w-3 text-indigo-600" /> MS Word Formatting:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('**', '**')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
+                        title="Bold (**text**)"
+                      >
+                        <Bold className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('*', '*')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded italic text-slate-700 hover:text-indigo-700 transition"
+                        title="Italic (*text*)"
+                      >
+                        <Italic className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('# ')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
+                        title="Heading 1 (# Title)"
+                      >
+                        <Heading1 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('## ')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
+                        title="Heading 2 (## Section)"
+                      >
+                        <Heading2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('- ')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
+                        title="Bullet List (- Item)"
+                      >
+                        <List className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('> ')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
+                        title="Callout Note (> Note)"
+                      >
+                        <Quote className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertFormatting('| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n')}
+                        className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
+                        title="Insert Table"
+                      >
+                        <TableIcon className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="ml-auto text-[10px] text-slate-500 font-medium">
+                        Editing {language === 'my' ? '🇲🇲 Burmese Version' : '🇬🇧 English Version'}
+                      </div>
+                    </div>
+
+                    {/* Word Page Container */}
+                    <textarea
+                      id="lesson-editor-textarea"
+                      rows={18}
+                      value={language === 'my' ? editedContentBurmese : editedContent}
+                      onChange={(e) => {
+                        if (language === 'my') {
+                          setEditedContentBurmese(e.target.value);
+                        } else {
+                          setEditedContent(e.target.value);
+                        }
+                      }}
+                      className="w-full font-mono text-xs leading-relaxed p-4 bg-white border border-slate-300 rounded-b-xl shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 min-h-[400px]"
+                      placeholder="Type or format your lesson plan content here..."
+                    />
+
+                    {/* Editor Action Footer */}
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        className="text-xs text-slate-600 hover:text-slate-900 font-semibold"
+                      >
+                        ← Back to Preview Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSavePlan}
+                        disabled={saving}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow transition flex items-center gap-1.5"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>{saving ? 'Saving to School...' : 'Save Lesson Plan to School'}</span>
+                      </button>
+                    </div>
                   </div>
                 ) : displayContent ? (
                   <div className="space-y-4">

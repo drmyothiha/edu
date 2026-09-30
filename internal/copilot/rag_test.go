@@ -180,7 +180,7 @@ func TestFullRAGPipelineExecution(t *testing.T) {
 		DurationMinutes: 45,
 	}
 
-	result, err := pipeline.Execute(ctx, uuid.New(), req)
+	result, err := pipeline.Execute(ctx, uuid.New(), nil, req)
 	if err != nil {
 		t.Fatalf("pipeline execution failed: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestRAGPipelineStreaming(t *testing.T) {
 		return nil
 	}
 
-	result, err := pipeline.ExecuteStream(ctx, uuid.New(), req, emitter)
+	result, err := pipeline.ExecuteStream(ctx, uuid.New(), nil, req, emitter)
 	if err != nil {
 		t.Fatalf("pipeline stream execution failed: %v", err)
 	}

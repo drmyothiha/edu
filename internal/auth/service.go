@@ -249,8 +249,8 @@ func (s *Service) GetUserByID(ctx context.Context, id uuid.UUID) (*UserDTO, erro
 		CreatedAt: profile.CreatedAt.Time,
 	}
 
-	if profile.AvatarURL.Valid && profile.AvatarURL.String != "" {
-		dto.AvatarURL = &profile.AvatarURL.String
+	if profile.AvatarUrl.Valid && profile.AvatarUrl.String != "" {
+		dto.AvatarURL = &profile.AvatarUrl.String
 	}
 	if profile.Phone.Valid && profile.Phone.String != "" {
 		dto.Phone = &profile.Phone.String
@@ -308,27 +308,18 @@ func (s *Service) UpdateProfile(ctx context.Context, id uuid.UUID, req UpdatePro
 	}
 
 	if req.AvatarURL != nil {
-		params.SetAvatarUrl = true
-		params.AvatarUrl = pgtype.Text{
-			String: *req.AvatarURL,
-			Valid:  *req.AvatarURL != "",
-		}
+		params.Column4 = true
+		params.Column5 = *req.AvatarURL
 	}
 
 	if req.Phone != nil {
-		params.SetPhone = true
-		params.Phone = pgtype.Text{
-			String: strings.TrimSpace(*req.Phone),
-			Valid:  strings.TrimSpace(*req.Phone) != "",
-		}
+		params.Column6 = true
+		params.Column7 = strings.TrimSpace(*req.Phone)
 	}
 
 	if req.Bio != nil {
-		params.SetBio = true
-		params.Bio = pgtype.Text{
-			String: strings.TrimSpace(*req.Bio),
-			Valid:  strings.TrimSpace(*req.Bio) != "",
-		}
+		params.Column8 = true
+		params.Column9 = strings.TrimSpace(*req.Bio)
 	}
 
 	if _, err := s.querier.UpdateUserProfile(ctx, params); err != nil {
