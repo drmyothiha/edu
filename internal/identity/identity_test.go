@@ -106,6 +106,16 @@ func TestMerkleTreeBatchAndProof(t *testing.T) {
 	}
 }
 
+func TestHashPairNonStandardLength(t *testing.T) {
+	left := "0x1234"
+	right := "0x567890"
+	got := HashPair(left, right)
+	expected := "0x6c450e037e79b76f231a71a22ff40403f7d9b74b15e014e52fe1156d3666c3e6"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
 func TestCredentialSchemaAndStatus(t *testing.T) {
 	_, schoolPriv, err := ed25519.GenerateKey(nil)
 	if err != nil {
