@@ -94,11 +94,63 @@ func BuildMerkleTree(leafHashes []string) (string, map[string][]MerkleProof, err
 	return currentLevel[0], proofs, nil
 }
 
-// HashPair computes sha256(left + right) in hex
+const hexTable = "0123456789abcdef"
+
+func unhex(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 0xff
+}
+
+func decodeHex32(s string, dst []byte) bool {
+	if len(s) >= 2 && (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+		s = s[2:]
+	}
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < 32; i++ {
+		a := unhex(s[i*2])
+		b := unhex(s[i*2+1])
+		if a == 0xff || b == 0xff {
+			return false
+		}
+		dst[i] = (a << 4) | b
+	}
+	return true
+}
+
+func encodeHex32WithPrefix(h [32]byte) string {
+	var buf [66]byte
+	buf[0] = '0'
+	buf[1] = 'x'
+	for i, b := range h {
+		buf[2+i*2] = hexTable[b>>4]
+		buf[3+i*2] = hexTable[b&0x0f]
+	}
+	return string(buf[:])
+}
+
+// HashPair computes sha256(left + right) in hex without unnecessary heap allocations.
 func HashPair(left, right string) string {
+	var buf [64]byte
+	leftOk := decodeHex32(left, buf[:32])
+	rightOk := decodeHex32(right, buf[32:])
+
+	if leftOk && rightOk {
+		h := sha256.Sum256(buf[:64])
+		return encodeHex32WithPrefix(h)
+	}
+
+	// Fallback path for non-32-byte hex strings
 	lBytes, _ := hex.DecodeString(strings.TrimPrefix(left, "0x"))
 	rBytes, _ := hex.DecodeString(strings.TrimPrefix(right, "0x"))
-
 	combined := append(lBytes, rBytes...)
 	h := sha256.Sum256(combined)
 	return "0x" + hex.EncodeToString(h[:])

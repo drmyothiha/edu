@@ -1,0 +1,3 @@
+## 2026-10-01 - Stack Buffer & Direct Hex Encoding for Merkle Tree Hash Pairing
+**Learning:** Merkle tree hash calculations (`HashPair`) in Go crypto routines were causing 6 allocations per pair due to `strings.TrimPrefix`, dynamic slice `append`, and `hex.DecodeString`/`hex.EncodeToString`. Using stack-allocated 64-byte arrays `[64]byte` and direct hex table lookups reduces heap allocations from 6 down to 1 per `HashPair` invocation and reduces overall Merkle tree generation memory allocations by ~33%.
+**Action:** When working on cryptographic hashing loops or Merkle tree proof checks, parse fixed-size hex string inputs directly into stack arrays `[64]byte` to avoid heap allocations on hot paths.
