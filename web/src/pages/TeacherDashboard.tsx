@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { ClassDTO, ConversationDTO, SchoolDTO } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { showAlertDialog } from '../context/ConfirmDialogContext';
 import { AnnouncementModal } from '../components/AnnouncementModal';
 import { TeacherConversationsModal } from '../components/TeacherConversationsModal';
 import { ChatModal } from '../components/ChatModal';
@@ -370,7 +371,11 @@ export const TeacherDashboard: React.FC = () => {
           classId={selectedClassForAnnouncement.id}
           className={selectedClassForAnnouncement.name}
           onCreated={() => {
-            alert('Class announcement broadcasted to all enrolled parents successfully!');
+            showAlertDialog({
+              title: 'ကြေညာချက် ထုတ်ပြန်ပြီးပါပြီ (Broadcast Sent)',
+              message: 'Class announcement broadcasted to all enrolled parents successfully!',
+              variant: 'success',
+            });
           }}
         />
       )}

@@ -4,6 +4,11 @@ import { api } from '../api/client';
 import { AttendanceStatus, AttendanceRosterItem, ClassDTO, WholeChildProfileDTO } from '../types';
 import { WholeChildMatrix } from '../components/WholeChildMatrix';
 import {
+  getCachedAttendance,
+  saveAttendanceToCache,
+  getCachedClassroom,
+} from '../services/classroomOfflineStorage';
+import {
   CalendarCheck,
   ArrowLeft,
   Save,
@@ -36,32 +41,76 @@ export const AttendancePage: React.FC = () => {
 
   const fetchRoster = async () => {
     if (!classId) return;
-    setLoading(true);
     setError(null);
     setSuccessMsg(null);
 
+    let hadCache = false;
+
+    // Step 1: Immediate 0ms load from IndexedDB
     try {
-      // Load class details
-      const cls = await api.classes.get(classId);
-      setClassInfo(cls);
+      const [cachedAtt, cachedCls] = await Promise.all([
+        getCachedAttendance(classId, selectedDate),
+        getCachedClassroom(classId),
+      ]);
 
-      // Load attendance roster for date
-      const res = await api.classes.getAttendanceRoster(classId, selectedDate);
-      setRoster(res.roster);
+      if (cachedCls?.classInfo) {
+        setClassInfo(cachedCls.classInfo);
+      }
 
-      // Initialize status map
-      const map: Record<string, { status: AttendanceStatus; notes: string }> = {};
-      res.roster.forEach((r) => {
-        map[r.student_id] = {
-          status: r.status === 'unrecorded' ? 'present' : r.status,
-          notes: r.notes || '',
-        };
-      });
-      setAttendanceMap(map);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load attendance roster');
-    } finally {
-      setLoading(false);
+      if (cachedAtt && cachedAtt.roster && cachedAtt.roster.length > 0) {
+        hadCache = true;
+        setRoster(cachedAtt.roster);
+        const map: Record<string, { status: AttendanceStatus; notes: string }> = {};
+        cachedAtt.roster.forEach((r) => {
+          map[r.student_id] = {
+            status: r.status === 'unrecorded' ? 'present' : r.status,
+            notes: r.notes || '',
+          };
+        });
+        setAttendanceMap(map);
+        setLoading(false); // Instant render without waiting
+      }
+    } catch (e) {
+      console.warn('[Attendance] IndexedDB cache read fallback:', e);
+    }
+
+    if (!hadCache) {
+      setLoading(true);
+    }
+
+    // Step 2: Delayed server check (1.2s delay if cached, immediate if no cache)
+    const runServerCheck = async () => {
+      try {
+        const cls = await api.classes.get(classId);
+        setClassInfo(cls);
+
+        const res = await api.classes.getAttendanceRoster(classId, selectedDate);
+        setRoster(res.roster);
+
+        const map: Record<string, { status: AttendanceStatus; notes: string }> = {};
+        res.roster.forEach((r) => {
+          map[r.student_id] = {
+            status: r.status === 'unrecorded' ? 'present' : r.status,
+            notes: r.notes || '',
+          };
+        });
+        setAttendanceMap(map);
+
+        // Save fresh roster to IndexedDB
+        await saveAttendanceToCache(classId, selectedDate, res);
+      } catch (err: any) {
+        if (!hadCache) {
+          setError(err.message || 'Failed to load attendance roster');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (hadCache) {
+      setTimeout(runServerCheck, 1200);
+    } else {
+      runServerCheck();
     }
   };
 
@@ -152,23 +201,17 @@ export const AttendancePage: React.FC = () => {
   );
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Navigation and Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto w-full space-y-5">
+      {/* Attendance Action Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
         <div>
-          <Link
-            to="/teacher"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 mb-2"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to My Classes
-          </Link>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <CalendarCheck className="h-6 w-6 text-emerald-600" />
-            Class Attendance Roster
+          <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <CalendarCheck className="h-5 w-5 text-emerald-600" />
+            <span>နေ့စဉ် ကျောင်းခေါ်ချိန် မှတ်တမ်း (Class Attendance Roster)</span>
           </h1>
           {classInfo && (
             <p className="text-xs text-slate-500 mt-0.5">
-              {classInfo.name} • {classInfo.grade_level} ({classInfo.academic_year})
+              {classInfo.name} • {classInfo.grade_level} ({classInfo.academic_year}) • နေ့စဉ် ကျောင်းတက်/ပျက်/ခွင့် စာရင်းနှင့် Whole-Child ၅ ရပ်
             </p>
           )}
         </div>

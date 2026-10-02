@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ConfirmDialogProvider } from './context/ConfirmDialogContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -14,11 +15,14 @@ import { SchoolTeachersPage } from './pages/SchoolTeachersPage';
 import { SchoolStudentsPage } from './pages/SchoolStudentsPage';
 import { SchoolStudentDetailPage } from './pages/SchoolStudentDetailPage';
 import { ClassExamMarksPage } from './pages/ClassExamMarksPage';
+import { ClassRoomDetailPage } from './pages/ClassRoomDetailPage';
 import { SchoolTimetablePage } from './pages/SchoolTimetablePage';
 import { ParentStudentView } from './pages/ParentStudentView';
 import { VerifyCredentialPage } from './pages/VerifyCredentialPage';
 import { GateKioskPage } from './pages/GateKioskPage';
 import { SchoolAdminProfilePage } from './pages/SchoolAdminProfilePage';
+import { TeacherProfilePage } from './pages/TeacherProfilePage';
+import { ClassroomLayout } from './components/ClassroomLayout';
 
 const HomeRedirect: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -35,7 +39,8 @@ const HomeRedirect: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <ConfirmDialogProvider>
+        <BrowserRouter>
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -69,7 +74,14 @@ export const App: React.FC = () => {
           >
             <Route index element={<SchoolAdminDashboard />} />
             <Route path="classes" element={<SchoolAdminDashboard />} />
-            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
+            <Route path="classes/:id" element={<ClassroomLayout />}>
+              <Route index element={<ClassRoomDetailPage />} />
+              <Route path="exam-marks" element={<ClassExamMarksPage />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="lessons" element={<CopilotPage />} />
+              <Route path="timetable" element={<SchoolTimetablePage />} />
+              <Route path="assignments" element={<AssignmentsPage />} />
+            </Route>
             <Route path="timetable" element={<SchoolTimetablePage />} />
             <Route path="teachers" element={<SchoolTeachersPage />} />
             <Route path="students" element={<SchoolStudentsPage />} />
@@ -88,7 +100,14 @@ export const App: React.FC = () => {
           >
             <Route index element={<SchoolAdminDashboard />} />
             <Route path="classes" element={<SchoolAdminDashboard />} />
-            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
+            <Route path="classes/:id" element={<ClassroomLayout />}>
+              <Route index element={<ClassRoomDetailPage />} />
+              <Route path="exam-marks" element={<ClassExamMarksPage />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="lessons" element={<CopilotPage />} />
+              <Route path="timetable" element={<SchoolTimetablePage />} />
+              <Route path="assignments" element={<AssignmentsPage />} />
+            </Route>
             <Route path="timetable" element={<SchoolTimetablePage />} />
             <Route path="teachers" element={<SchoolTeachersPage />} />
             <Route path="students" element={<SchoolStudentsPage />} />
@@ -108,10 +127,15 @@ export const App: React.FC = () => {
             <Route index element={<TeacherDashboard />} />
             <Route path="copilot" element={<CopilotPage />} />
             <Route path="timetable" element={<SchoolTimetablePage />} />
-            <Route path="classes/:id/timetable" element={<SchoolTimetablePage />} />
-            <Route path="classes/:id/attendance" element={<AttendancePage />} />
-            <Route path="classes/:id/assignments" element={<AssignmentsPage />} />
-            <Route path="classes/:id/exam-marks" element={<ClassExamMarksPage />} />
+            <Route path="classes/:id" element={<ClassroomLayout />}>
+              <Route index element={<ClassRoomDetailPage />} />
+              <Route path="exam-marks" element={<ClassExamMarksPage />} />
+              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="lessons" element={<CopilotPage />} />
+              <Route path="timetable" element={<SchoolTimetablePage />} />
+              <Route path="assignments" element={<AssignmentsPage />} />
+            </Route>
+            <Route path="profile" element={<TeacherProfilePage />} />
           </Route>
 
           {/* Parent / Student Progress Route */}
@@ -130,7 +154,8 @@ export const App: React.FC = () => {
           <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </BrowserRouter>
-    </AuthProvider>
+    </ConfirmDialogProvider>
+  </AuthProvider>
   );
 };
 

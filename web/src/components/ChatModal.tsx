@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { showAlertDialog } from '../context/ConfirmDialogContext';
 import { ConversationDTO, MessageDTO } from '../types';
 import {
   MessageSquare,
@@ -106,7 +107,11 @@ export const ChatModal: React.FC<ChatModalProps> = ({
       setInputText('');
       setTimeout(scrollToBottom, 50);
     } catch (err: any) {
-      alert(err.message || 'Failed to send message');
+      showAlertDialog({
+        title: 'မက်ဆေ့ခ်ျ ပေးပို့ခြင်း မအောင်မြင်ပါ',
+        message: err.message || 'Failed to send message',
+        variant: 'danger',
+      });
     } finally {
       setSending(false);
     }

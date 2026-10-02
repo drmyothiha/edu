@@ -52,10 +52,70 @@ func (h *Handler) CreateClass(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, class)
 }
 
+// parseClassID extracts and parses class ID from URL param "id", resolving slugs like G1A, KGA if needed.
+func (h *Handler) parseClassID(r *http.Request) (uuid.UUID, error) {
+	raw := chi.URLParam(r, "id")
+	if raw == "" {
+		return uuid.Nil, errors.New("empty class ID")
+	}
+	if parsed, err := uuid.Parse(raw); err == nil {
+		return parsed, nil
+	}
+
+	// Try resolving slug (e.g. G1A, G1-A, KGA, Grade 1 - Section A)
+	ctx := r.Context()
+	user, _ := auth.UserFromContext(ctx)
+	var schoolID *uuid.UUID
+	if user != nil && user.SchoolID != nil {
+		schoolID = user.SchoolID
+	}
+	classes, err := h.service.ListClasses(ctx, schoolID, nil)
+	if err == nil {
+		clean := strings.ToUpper(strings.Map(func(r rune) rune {
+			if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return -1
+		}, raw))
+
+		for _, c := range classes {
+			cClean := strings.ToUpper(strings.Map(func(r rune) rune {
+				if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+					return r
+				}
+				return -1
+			}, c.Name))
+			if cClean == clean {
+				return c.ID, nil
+			}
+
+			var sec string
+			upperName := strings.ToUpper(c.Name)
+			if idx := strings.Index(upperName, "SECTION "); idx != -1 {
+				parts := strings.Fields(upperName[idx:])
+				if len(parts) >= 2 {
+					sec = parts[1]
+				}
+			}
+
+			gShort := strings.ReplaceAll(strings.ToUpper(c.GradeLevel), "GRADE", "G")
+			gShort = strings.ReplaceAll(gShort, " ", "")
+
+			if sec != "" {
+				if clean == gShort+sec || clean == strings.ReplaceAll(strings.ToUpper(c.GradeLevel), " ", "")+sec {
+					return c.ID, nil
+				}
+			}
+		}
+	}
+
+	return uuid.Nil, errors.New("invalid class ID format")
+}
+
 // GetClass handles GET /api/v1/classes/{id}
 func (h *Handler) GetClass(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -114,7 +174,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 // DeleteClass handles DELETE /api/v1/classes/{id}
 func (h *Handler) DeleteClass(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -438,7 +498,7 @@ func (h *Handler) GetSchool(w http.ResponseWriter, r *http.Request) {
 // EnrollStudent handles POST /api/v1/classes/{id}/enroll
 func (h *Handler) EnrollStudent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -470,7 +530,7 @@ func (h *Handler) EnrollStudent(w http.ResponseWriter, r *http.Request) {
 // ListStudents handles GET /api/v1/classes/{id}/students
 func (h *Handler) ListStudents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -488,7 +548,7 @@ func (h *Handler) ListStudents(w http.ResponseWriter, r *http.Request) {
 // BatchRecordAttendance handles POST /api/v1/classes/{id}/attendance
 func (h *Handler) BatchRecordAttendance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -512,7 +572,7 @@ func (h *Handler) BatchRecordAttendance(w http.ResponseWriter, r *http.Request) 
 // GetAttendanceRoster handles GET /api/v1/classes/{id}/attendance?date=YYYY-MM-DD
 func (h *Handler) GetAttendanceRoster(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -536,7 +596,7 @@ func (h *Handler) GetAttendanceRoster(w http.ResponseWriter, r *http.Request) {
 // CreateAssignment handles POST /api/v1/classes/{id}/assignments
 func (h *Handler) CreateAssignment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -560,7 +620,7 @@ func (h *Handler) CreateAssignment(w http.ResponseWriter, r *http.Request) {
 // ListAssignments handles GET /api/v1/classes/{id}/assignments
 func (h *Handler) ListAssignments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -855,7 +915,7 @@ func (h *Handler) IngestWholeChildBatch(w http.ResponseWriter, r *http.Request) 
 // ListClassWholeChildProfiles handles GET /api/v1/classes/{id}/whole-child-profiles
 func (h *Handler) ListClassWholeChildProfiles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -874,7 +934,7 @@ func (h *Handler) ListClassWholeChildProfiles(w http.ResponseWriter, r *http.Req
 // BatchSaveClassWholeChildProfiles handles POST /api/v1/classes/{id}/whole-child-profiles
 func (h *Handler) BatchSaveClassWholeChildProfiles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1061,7 +1121,7 @@ func (h *Handler) CreateAnnouncement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1085,7 +1145,7 @@ func (h *Handler) CreateAnnouncement(w http.ResponseWriter, r *http.Request) {
 // ListClassAnnouncements handles GET /api/v1/classes/{id}/announcements
 func (h *Handler) ListClassAnnouncements(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1192,7 +1252,7 @@ func (h *Handler) MarkAllNotificationsRead(w http.ResponseWriter, r *http.Reques
 // GetExamMarksRoster handles GET /api/v1/classes/{id}/exam-marks?exam_name=...
 func (h *Handler) GetExamMarksRoster(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1211,7 +1271,7 @@ func (h *Handler) GetExamMarksRoster(w http.ResponseWriter, r *http.Request) {
 // BatchRecordExamMarks handles POST /api/v1/classes/{id}/exam-marks
 func (h *Handler) BatchRecordExamMarks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1235,7 +1295,7 @@ func (h *Handler) BatchRecordExamMarks(w http.ResponseWriter, r *http.Request) {
 // ListClassExams handles GET /api/v1/classes/{id}/exams
 func (h *Handler) ListClassExams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1295,7 +1355,7 @@ func (h *Handler) SaveSchoolShiftConfig(w http.ResponseWriter, r *http.Request) 
 // GetClassTimetable handles GET /api/v1/classes/{id}/timetable
 func (h *Handler) GetClassTimetable(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1313,7 +1373,7 @@ func (h *Handler) GetClassTimetable(w http.ResponseWriter, r *http.Request) {
 // UpdateClassTimetable handles PUT /api/v1/classes/{id}/timetable
 func (h *Handler) UpdateClassTimetable(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return
@@ -1338,7 +1398,7 @@ func (h *Handler) UpdateClassTimetable(w http.ResponseWriter, r *http.Request) {
 // PublishClassTimetable handles POST /api/v1/classes/{id}/timetable/publish
 func (h *Handler) PublishClassTimetable(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	classID, err := uuid.Parse(chi.URLParam(r, "id"))
+	classID, err := h.parseClassID(r)
 	if err != nil {
 		response.BadRequest(w, "invalid class ID format")
 		return

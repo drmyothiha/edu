@@ -180,6 +180,7 @@ export const SysadminDashboard: React.FC = () => {
     setPage(newPage);
     fetchSchools(newPage, limit, debouncedSearch, selectedRegionFilter, selectedCategoryFilter);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAnchorBatch = async () => {

@@ -73,7 +73,7 @@ web-build:
 web-dev:
 	cd web && npm run dev
 
-CLOUD_HOST ?= mth@34.21.230.33
+CLOUD_HOST ?= mth@136.85.95.216
 CLOUD_PATH ?= /home/mth/edu/
 
 sync:
@@ -93,7 +93,7 @@ sync-from-cloud:
 help:
 	@echo "Available commands:"
 	@echo "  make sync           Two-way sync: downloads cloud edits and uploads local edits"
-	@echo "  make sync-to-cloud  Upload local changes to GCP VM (34.21.230.33)"
+	@echo "  make sync-to-cloud  Upload local changes to production VM (136.85.95.216)"
 	@echo "  make sync-from-cloud Pull changes made on GCP VM down to Mac"
 	@echo "  make build          Compile API server binary into bin/"
 	@echo "  make run            Run API server with air (hot-reload) or go run"

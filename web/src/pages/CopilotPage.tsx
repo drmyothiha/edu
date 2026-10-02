@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import {
   LessonPlanRequest,
   LessonPlanResponse,
@@ -21,7 +23,6 @@ import {
   Loader2,
   Database,
   ShieldCheck,
-  Cpu,
   Layers,
   CheckCircle2,
   AlertTriangle,
@@ -262,12 +263,36 @@ const isMatchGrade = (lessonGrade: string, targetGrade: string): boolean => {
 };
 
 export const CopilotPage: React.FC = () => {
+  const { id: classParam } = useParams<{ id?: string }>();
+  const { confirm } = useConfirm();
+
   const [formData, setFormData] = useState<LessonPlanRequest>({
     subject: 'Mathematics',
     grade_level: 'Grade 8',
     topic: 'Pythagorean Theorem and Real-World Distance Calculations',
     duration_minutes: 45,
   });
+
+  // Automatically adapt grade and topic to current classroom if route has :id
+  useEffect(() => {
+    if (classParam) {
+      api.classes
+        .get(classParam)
+        .then((cls) => {
+          if (cls) {
+            const g = cls.grade_level || 'KG';
+            const isKg = g.toLowerCase().includes('kg');
+            setFormData((prev) => ({
+              ...prev,
+              grade_level: isKg ? 'KG' : g,
+              subject: isKg ? 'Myanmar Literature' : prev.subject,
+              topic: isKg ? 'က ကလေးငယ် ချစ်စဖွယ် - ကခဂဃင ဗျည်း (၃၃) လုံး မိတ်ဆက်ခြင်း' : prev.topic,
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [classParam]);
 
   const [generating, setGenerating] = useState(false);
   const [translating, setTranslating] = useState(false);
@@ -446,7 +471,15 @@ export const CopilotPage: React.FC = () => {
   // Delete a saved lesson plan with user confirmation
   const handleDeletePlan = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this saved lesson plan?')) {
+    const isConfirmed = await confirm({
+      title: 'သင်ခန်းစာ အစီအစဉ် ပယ်ဖျက်ရန် (Delete Lesson Plan)',
+      message: 'Are you sure you want to delete this saved lesson plan?',
+      confirmText: 'ပယ်ဖျက်မည် (Delete)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'danger',
+      cautionText: 'ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ (This action cannot be undone)',
+    });
+    if (!isConfirmed) {
       return;
     }
     setDeletingId(id);
@@ -587,16 +620,6 @@ export const CopilotPage: React.FC = () => {
     }
   };
 
-  const setPreset = (subject: string, grade: string, topic: string, duration: number) => {
-    setIsCustomSubject(false);
-    setFormData({
-      subject,
-      grade_level: grade,
-      topic,
-      duration_minutes: duration,
-    });
-  };
-
   // Filtered history matching the currently selected Grade and Subject (e.g. Grade 8, Mathematics)
   const filteredHistory = history.filter(
     (h) => isMatchSubject(h.subject, formData.subject) && isMatchGrade(h.grade_level, formData.grade_level)
@@ -616,128 +639,14 @@ export const CopilotPage: React.FC = () => {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Top Banner: RAG Architecture Core Principle */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-2xl p-6 text-white shadow-md relative overflow-hidden border border-indigo-700/50">
-        <div className="absolute right-0 top-0 bottom-0 opacity-10 flex items-center pr-8 pointer-events-none">
-          <Database className="h-64 w-64 text-white" />
-        </div>
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-xs font-semibold mb-2">
-              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-              <span>RAG Pipeline Architecture • မြန်မာ့ပညာရေး စံနှုန်းအခြေပြု စနစ်</span>
-            </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-              Teacher's AI Teaching Copilot
-            </h1>
-            <p className="mt-1 text-xs md:text-sm text-indigo-200 max-w-3xl leading-relaxed">
-              Foundational Retrieval-Augmented Generation (RAG) pattern: Raw LLM output is{' '}
-              <strong className="text-white font-bold underline decoration-amber-400">never sent directly to teachers</strong>{' '}
-              without strict grounding in approved Myanmar Ministry of Education (MoE) curriculum standards and class competencies.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur border border-white/20 text-right">
-              <div className="text-[10px] uppercase font-bold text-indigo-200 tracking-wider">Grounding Standard</div>
-              <div className="text-xs font-mono font-bold text-emerald-300 flex items-center gap-1.5 justify-end">
-                <ShieldCheck className="h-3.5 w-3.5" /> KG+12 MoE Certified
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Main Two-Pane Studio Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Pane: Form & Preset Controls (5 Cols) */}
+        {/* Left Pane: Form Controls (5 Cols) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-            <h2 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-1.5">
-              <Cpu className="h-4 w-4 text-indigo-600" /> 1. Teacher Intent & Parameters
+            <h2 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-1.5">
+              <BookOpen className="h-4 w-4 text-indigo-600" /> သင်ခန်းစာ အချက်အလက်များ (Lesson Plan Details)
             </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Enter target details. The query encoder generates dense vectors to retrieve MoE standards.
-            </p>
-
-            {/* Quick Presets */}
-            <div className="mb-4">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                Curriculum Intent Presets
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreset(
-                      'Mathematics',
-                      'Grade 5',
-                      'Fractions, 45-min lesson (Addition & Subtraction of Unlike Denominators)',
-                      45
-                    )
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition font-semibold border border-indigo-200 shadow-xs flex items-center gap-1"
-                >
-                  <Sparkles className="h-3 w-3 text-indigo-600" />
-                  Grade 5 Math: Fractions (45 min)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreset(
-                      'Mathematics',
-                      'Grade 8',
-                      'Pythagorean Theorem & Geometric Proofs (a² + b² = c²)',
-                      45
-                    )
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
-                >
-                  📐 Math (Grade 8)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreset(
-                      'General Science',
-                      'Grade 9',
-                      'Photosynthesis Mechanism and Light Energy Reactions',
-                      50
-                    )
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
-                >
-                  🔬 Science (Grade 9)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreset(
-                      'Myanmar Literature',
-                      'Grade 8',
-                      'စကားပြေ အရေးအသားနှင့် ဝါကျဖွဲ့ထုံး လေ့လာခြင်း',
-                      45
-                    )
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 transition font-medium border border-amber-200"
-                >
-                  🇲🇲 မြန်မာစာ (Grade 8)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreset(
-                      'English Literature',
-                      'Grade 7',
-                      'Writing Persuasive Paragraphs with Supporting Evidence',
-                      40
-                    )
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 transition font-medium border border-slate-200"
-                >
-                  📖 English (Grade 7)
-                </button>
-              </div>
-            </div>
 
             <form onSubmit={handleGenerate} className="space-y-3.5">
               <div>
@@ -750,7 +659,7 @@ export const CopilotPage: React.FC = () => {
                     onClick={() => setIsCustomSubject(!isCustomSubject)}
                     className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline"
                   >
-                    {isCustomSubject ? '← Standard Subjects' : '+ Custom Subject'}
+                    {isCustomSubject ? '← ပုံမှန်ဘာသာရပ်များ (Standard)' : '+ အခြားဘာသာရပ် (Custom)'}
                   </button>
                 </div>
                 {!isCustomSubject ? (
@@ -775,7 +684,7 @@ export const CopilotPage: React.FC = () => {
                     required
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    placeholder="e.g. Mathematics"
+                    placeholder="ဥပမာ - သင်္ချာ"
                     className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 )}
@@ -801,7 +710,7 @@ export const CopilotPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Duration (Minutes)
+                    Duration / သင်ကြားချိန် (မိနစ်)
                   </label>
                   <input
                     type="number"
@@ -817,14 +726,14 @@ export const CopilotPage: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Intent & Core Topic / သင်ခန်းစာ ခေါင်းစဉ်
+                  Topic / သင်ခန်းစာ ခေါင်းစဉ်
                 </label>
                 <textarea
                   rows={3}
                   required
                   value={formData.topic}
                   onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
-                  placeholder="e.g. Grade 8 Math, Pythagorean Theorem, 45-min lesson"
+                  placeholder="ဥပမာ - Grade 8 သင်္ချာ၊ ပိုက်သာဂိုးရပ်သီအိုရမ်၊ ၄၅ မိနစ် သင်ခန်းစာ"
                   className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
@@ -839,16 +748,16 @@ export const CopilotPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={generating}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 transition"
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60 transition cursor-pointer"
               >
                 {generating ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Executing RAG Stream (SSE)...
+                    သင်ခန်းစာ ရေးဆွဲနေပါသည်... (Generating...)
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-4 w-4 text-amber-300" /> Execute RAG Pipeline & Stream
+                    <Sparkles className="h-4 w-4 text-amber-300" /> သင်ခန်းစာ အစီအစဉ် ရေးဆွဲမည် (Generate Plan)
                   </>
                 )}
               </button>
@@ -862,7 +771,7 @@ export const CopilotPage: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
                     <Building2 className="h-3.5 w-3.5 text-indigo-600" />
-                    Saved Lesson Library
+                    သိမ်းဆည်းထားသော သင်ခန်းစာများ (Saved Lessons)
                   </h3>
                   <span className="text-[11px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700">
                     {filterScope === 'scoped' ? filteredHistory.length : history.length}
@@ -890,7 +799,7 @@ export const CopilotPage: React.FC = () => {
                         : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    📚 All ({history.length})
+                    📚 အားလုံး ({history.length})
                   </button>
                 </div>
               </div>
@@ -899,7 +808,7 @@ export const CopilotPage: React.FC = () => {
                 <span className="flex items-center gap-1.5">
                   <Users className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
                   <span>
-                    School Facility Context • Visible to all teachers in your school for <strong>{formData.grade_level}</strong>
+                    ကျောင်းအဆင့် မျှဝေမှု • <strong>{formData.grade_level}</strong> သင်ကြားသော ဆရာ/ဆရာမများအားလုံး ကြည့်ရှုနိုင်ပါသည်
                   </span>
                 </span>
               </div>
@@ -907,7 +816,7 @@ export const CopilotPage: React.FC = () => {
               {filterScope === 'scoped' && (
                 <div className="mb-2 px-2 py-1 bg-slate-100 border border-slate-200 rounded-md text-[11px] text-slate-700 flex items-center justify-between">
                   <span className="truncate">
-                    Filtered: <strong>{formData.grade_level}</strong> • <strong>{formData.subject}</strong>
+                    သီးသန့်ကြည့်ရှုမှု: <strong>{formData.grade_level}</strong> • <strong>{formData.subject}</strong>
                   </span>
                   {filteredHistory.length === 0 && (
                     <button
@@ -915,7 +824,7 @@ export const CopilotPage: React.FC = () => {
                       onClick={() => setFilterScope('all')}
                       className="text-indigo-600 underline font-semibold ml-2 flex-shrink-0"
                     >
-                      Show All
+                      အားလုံးပြပါ (Show All)
                     </button>
                   )}
                 </div>
@@ -924,14 +833,14 @@ export const CopilotPage: React.FC = () => {
               {displayedHistory.length === 0 ? (
                 <div className="p-4 text-center border border-dashed border-slate-200 rounded-lg bg-slate-50">
                   <p className="text-xs text-slate-500 font-medium">
-                    No saved lectures for <strong>{formData.grade_level} • {formData.subject}</strong> yet.
+                    <strong>{formData.grade_level} • {formData.subject}</strong> အတွက် သိမ်းဆည်းထားသော သင်ခန်းစာ မရှိသေးပါ။
                   </p>
                   <button
                     type="button"
                     onClick={() => setFilterScope('all')}
                     className="mt-1.5 text-xs text-indigo-600 hover:underline font-semibold"
                   >
-                    View all {history.length} saved lessons across all grades →
+                    အတန်းအားလုံးမှ သိမ်းဆည်းထားသော သင်ခန်းစာ {history.length} ခုလုံးကို ကြည့်ရန် →
                   </button>
                 </div>
               ) : (
@@ -955,9 +864,9 @@ export const CopilotPage: React.FC = () => {
                             {h.grade_level}
                           </span>
                           <span>•</span>
-                          <span>{h.duration_minutes}m</span>
+                          <span>{h.duration_minutes} မိနစ်</span>
                           <span className="ml-1 bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.2 rounded text-[9px] font-semibold">
-                            🏫 School Facility
+                            🏫 ကျောင်းအဆင့်
                           </span>
                         </div>
                       </div>
@@ -967,7 +876,7 @@ export const CopilotPage: React.FC = () => {
                           disabled={deletingId === h.id}
                           onClick={(e) => handleDeletePlan(h.id, e)}
                           className="opacity-40 group-hover:opacity-100 p-1.5 rounded-md hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition"
-                          title="Delete this saved lesson"
+                          title="ဤသင်ခန်းစာကို ပယ်ဖျက်မည် (Delete)"
                         >
                           {deletingId === h.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" />
@@ -999,7 +908,7 @@ export const CopilotPage: React.FC = () => {
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <FileText className="h-3.5 w-3.5" /> Lesson Plan Studio
+                  <FileText className="h-3.5 w-3.5" /> သင်ခန်းစာ စတူဒီယို (Studio)
                 </button>
                 <button
                   onClick={() => setActiveTab('grounding')}
@@ -1010,7 +919,7 @@ export const CopilotPage: React.FC = () => {
                   }`}
                 >
                   <Database className="h-3.5 w-3.5 text-emerald-600" />
-                  RAG Grounding Inspector
+                  MoE သင်ရိုးစံနှုန်း (Grounding)
                   {retrievedChunks.length > 0 && (
                     <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                       {retrievedChunks.length} MoE
@@ -1026,7 +935,7 @@ export const CopilotPage: React.FC = () => {
                   }`}
                 >
                   <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" />
-                  Validation Report
+                  စိစစ်ချက် အစီရင်ခံစာ (Validation)
                   {validationReport && (
                     <span
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
@@ -1053,10 +962,10 @@ export const CopilotPage: React.FC = () => {
                           ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
                           : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
                       }`}
-                      title="Toggle MS Word style editor"
+                      title="စာသားတည်းဖြတ်မှု စနစ်ဖွင့်ရန်"
                     >
                       <Edit3 className="h-3.5 w-3.5" />
-                      <span>{isEditing ? 'Preview' : 'Edit (MS Word)'}</span>
+                      <span>{isEditing ? 'နမူနာကြည့်မည် (Preview)' : 'ပြင်ဆင်မည် (Edit)'}</span>
                     </button>
 
                     <button
@@ -1068,22 +977,22 @@ export const CopilotPage: React.FC = () => {
                           ? 'bg-emerald-600 text-white'
                           : 'bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50'
                       }`}
-                      title="Save lesson plan with school context (Visible to other grade teachers)"
+                      title="ကျောင်းအတွက် သင်ခန်းစာ အစီအစဉ် သိမ်းဆည်းမည်"
                     >
                       {saving ? (
                         <>
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Saving...</span>
+                          <span>သိမ်းဆည်းနေပါသည်...</span>
                         </>
                       ) : saveSuccess ? (
                         <>
                           <Check className="h-3.5 w-3.5 text-white" />
-                          <span>Saved!</span>
+                          <span>သိမ်းဆည်းပြီး!</span>
                         </>
                       ) : (
                         <>
                           <Save className="h-3.5 w-3.5" />
-                          <span>Save Plan</span>
+                          <span>သိမ်းဆည်းမည် (Save)</span>
                         </>
                       )}
                     </button>
@@ -1094,7 +1003,7 @@ export const CopilotPage: React.FC = () => {
                   onClick={toggleLanguage}
                   disabled={translating || !currentPlan}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition shadow-xs disabled:opacity-50"
-                  title="Toggle between English and Burmese"
+                  title="မြန်မာ / English ပြောင်းလဲရန်"
                 >
                   <Languages className="h-3.5 w-3.5 text-indigo-600" />
                   <span>{language === 'my' ? '🇲🇲 မြန်မာမူ' : '🇬🇧 English'}</span>
@@ -1104,16 +1013,17 @@ export const CopilotPage: React.FC = () => {
                   onClick={handleCopy}
                   disabled={!currentPlan && !displayContent}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition shadow-xs disabled:opacity-50"
+                  title="သင်ခန်းစာ အကြောင်းအရာ ကူးယူမည်"
                 >
                   {copied ? (
                     <>
                       <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      <span className="text-emerald-700 font-semibold">Copied</span>
+                      <span className="text-emerald-700 font-semibold">ကူးယူပြီး</span>
                     </>
                   ) : (
                     <>
                       <Copy className="h-3.5 w-3.5" />
-                      <span>Copy</span>
+                      <span>ကူးယူမည် (Copy)</span>
                     </>
                   )}
                 </button>
@@ -1122,10 +1032,10 @@ export const CopilotPage: React.FC = () => {
                   onClick={() => setIsFullScreen(true)}
                   disabled={!currentPlan && !displayContent}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-xs font-semibold text-indigo-700 transition shadow-xs disabled:opacity-50 cursor-pointer"
-                  title="Full Screen Focus Mode"
+                  title="မျက်နှာပြင် အပြည့်ကြည့်ရန်"
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Focus</span>
+                  <span className="hidden sm:inline">မျက်နှာပြင်ပြည့် (Focus)</span>
                 </button>
               </div>
             </div>
@@ -1139,11 +1049,11 @@ export const CopilotPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4 text-indigo-700 flex-shrink-0" />
                       <span>
-                        <strong>School Facility Context:</strong> Saved for this school facility. Visible to all teachers in this facility teaching <strong>{currentPlan.grade_level}</strong>.
+                        <strong>ကျောင်းအဆင့် မျှဝေမှု:</strong> ဤကျောင်းတွင် <strong>{currentPlan.grade_level}</strong> သင်ကြားသော ဆရာ/ဆရာမများအားလုံး ကြည့်ရှုနိုင်ပါသည်။
                       </span>
                     </div>
                     <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-white/80 px-2 py-0.5 rounded border border-indigo-200">
-                      <Users className="h-3 w-3" /> Shared {currentPlan.grade_level} Context
+                      <Users className="h-3 w-3" /> {currentPlan.grade_level} ဘုံအသုံးပြုမှု
                     </div>
                   </div>
                 )}
@@ -1152,10 +1062,10 @@ export const CopilotPage: React.FC = () => {
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-3">
                     <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
                     <p className="text-sm font-semibold text-slate-800">
-                      Executing Grounded RAG Pipeline...
+                      မြန်မာ့ပညာရေး စံနှုန်းများဖြင့် သင်ခန်းစာ ရေးဆွဲနေပါသည်...
                     </p>
                     <p className="text-xs text-slate-500 max-w-md">
-                      Encoding query vector, querying Myanmar MoE curriculum store, synthesizing competency benchmarks, and assembling grounded prompt.
+                      ပညာရေးဝန်ကြီးဌာန (MoE) သင်ရိုးစံနှုန်းများနှင့် စွမ်းရည်ရည်မှန်းချက်များကို ထည့်သွင်းစဉ်းစားကာ သင်ခန်းစာ အစီအစဉ် ပြုစုနေပါသည်။
                     </p>
                   </div>
                 ) : isEditing ? (
@@ -1164,27 +1074,27 @@ export const CopilotPage: React.FC = () => {
                     {/* Topic editor bar */}
                     <div className="flex items-center gap-2">
                       <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex-shrink-0">
-                        Topic:
+                        ခေါင်းစဉ် (Topic):
                       </label>
                       <input
                         type="text"
                         value={editedTopic}
                         onChange={(e) => setEditedTopic(e.target.value)}
                         className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        placeholder="Lesson Plan Topic"
+                        placeholder="သင်ခန်းစာ ခေါင်းစဉ် ရိုက်ထည့်ပါ"
                       />
                     </div>
 
                     {/* Rich MS Word Style Formatting Toolbar */}
                     <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-100 border border-slate-200 rounded-t-xl text-xs">
                       <span className="text-[10px] uppercase font-bold text-slate-500 mr-1 flex items-center gap-1">
-                        <Edit3 className="h-3 w-3 text-indigo-600" /> MS Word Formatting:
+                        <Edit3 className="h-3 w-3 text-indigo-600" /> စာသားပုံစံ ပြင်ဆင်ရန်:
                       </span>
                       <button
                         type="button"
                         onClick={() => insertFormatting('**', '**')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
-                        title="Bold (**text**)"
+                        title="စာလုံးမည်း (Bold)"
                       >
                         <Bold className="h-3.5 w-3.5" />
                       </button>
@@ -1192,7 +1102,7 @@ export const CopilotPage: React.FC = () => {
                         type="button"
                         onClick={() => insertFormatting('*', '*')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded italic text-slate-700 hover:text-indigo-700 transition"
-                        title="Italic (*text*)"
+                        title="စာလုံးစောင်း (Italic)"
                       >
                         <Italic className="h-3.5 w-3.5" />
                       </button>
@@ -1200,7 +1110,7 @@ export const CopilotPage: React.FC = () => {
                         type="button"
                         onClick={() => insertFormatting('# ')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
-                        title="Heading 1 (# Title)"
+                        title="ခေါင်းစဉ်ကြီး (Heading 1)"
                       >
                         <Heading1 className="h-3.5 w-3.5" />
                       </button>
@@ -1208,7 +1118,7 @@ export const CopilotPage: React.FC = () => {
                         type="button"
                         onClick={() => insertFormatting('## ')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded font-bold text-slate-700 hover:text-indigo-700 transition"
-                        title="Heading 2 (## Section)"
+                        title="ခေါင်းစဉ်ငယ် (Heading 2)"
                       >
                         <Heading2 className="h-3.5 w-3.5" />
                       </button>
@@ -1216,7 +1126,7 @@ export const CopilotPage: React.FC = () => {
                         type="button"
                         onClick={() => insertFormatting('- ')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
-                        title="Bullet List (- Item)"
+                        title="အမှတ်စဉ် (Bullet List)"
                       >
                         <List className="h-3.5 w-3.5" />
                       </button>
@@ -1224,20 +1134,20 @@ export const CopilotPage: React.FC = () => {
                         type="button"
                         onClick={() => insertFormatting('> ')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
-                        title="Callout Note (> Note)"
+                        title="အရေးကြီးမှတ်ချက် (Callout Note)"
                       >
                         <Quote className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
-                        onClick={() => insertFormatting('| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n')}
+                        onClick={() => insertFormatting('| ကော်လံ ၁ | ကော်လံ ၂ |\n| --- | --- |\n| အချက် ၁ | အချက် ၂ |\n')}
                         className="p-1.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-slate-700 hover:text-indigo-700 transition"
-                        title="Insert Table"
+                        title="ဇယားထည့်သွင်းရန် (Table)"
                       >
                         <TableIcon className="h-3.5 w-3.5" />
                       </button>
                       <div className="ml-auto text-[10px] text-slate-500 font-medium">
-                        Editing {language === 'my' ? '🇲🇲 Burmese Version' : '🇬🇧 English Version'}
+                        {language === 'my' ? '🇲🇲 မြန်မာမူဗားရှင်း ပြင်ဆင်နေသည်' : '🇬🇧 English Version ပြင်ဆင်နေသည်'}
                       </div>
                     </div>
 
@@ -1254,7 +1164,7 @@ export const CopilotPage: React.FC = () => {
                         }
                       }}
                       className="w-full font-mono text-xs leading-relaxed p-4 bg-white border border-slate-300 rounded-b-xl shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 min-h-[400px]"
-                      placeholder="Type or format your lesson plan content here..."
+                      placeholder="သင်ခန်းစာ အစီအစဉ် အကြောင်းအရာများကို ဤနေရာတွင် ရိုက်ထည့်ပါ သို့မဟုတ် ပြင်ဆင်ပါ..."
                     />
 
                     {/* Editor Action Footer */}
@@ -1262,18 +1172,18 @@ export const CopilotPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setIsEditing(false)}
-                        className="text-xs text-slate-600 hover:text-slate-900 font-semibold"
+                        className="text-xs text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
                       >
-                        ← Back to Preview Mode
+                        ← နမူနာကြည့်မုဒ်သို့ ပြန်သွားရန် (Preview)
                       </button>
                       <button
                         type="button"
                         onClick={handleSavePlan}
                         disabled={saving}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow transition flex items-center gap-1.5"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer"
                       >
                         <Save className="h-4 w-4" />
-                        <span>{saving ? 'Saving to School...' : 'Save Lesson Plan to School'}</span>
+                        <span>{saving ? 'ကျောင်းအတွက် သိမ်းဆည်းနေပါသည်...' : 'ကျောင်းအတွက် သင်ခန်းစာ သိမ်းဆည်းမည်'}</span>
                       </button>
                     </div>
                   </div>
@@ -1285,11 +1195,11 @@ export const CopilotPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <ShieldCheck className="h-4 w-4 text-emerald-700 flex-shrink-0" />
                           <span className="text-emerald-950 font-semibold">
-                            Grounded in MoE Standard: [{retrievedChunks[0].standard_code}] {retrievedChunks[0].unit_title}
+                            MoE သင်ရိုးစံနှုန်း: [{retrievedChunks[0].standard_code}] {retrievedChunks[0].unit_title}
                           </span>
                         </div>
                         <span className="font-mono text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-bold">
-                          Match: {Math.round((retrievedChunks[0].similarity_score || 0.95) * 100)}%
+                          ကိုက်ညီမှု: {Math.round((retrievedChunks[0].similarity_score || 0.95) * 100)}%
                         </span>
                       </div>
                     )}
@@ -1299,9 +1209,9 @@ export const CopilotPage: React.FC = () => {
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-2 text-slate-400">
                     <BookOpen className="h-10 w-10 text-slate-300" />
-                    <p className="text-sm font-medium text-slate-600">No lesson plan generated yet</p>
+                    <p className="text-sm font-medium text-slate-600">သင်ခန်းစာ အစီအစဉ် မရှိသေးပါ (No lesson plan generated yet)</p>
                     <p className="text-xs max-w-sm">
-                      Select the "Grade 5 Math: Fractions (45 min)" preset or enter parameters on the left to initiate the grounded RAG pipeline.
+                      ဘယ်ဘက်တွင် အကြောင်းအရာနှင့် အချက်အလက်များ ဖြည့်သွင်းပြီး သင်ခန်းစာ ရေးဆွဲနိုင်ပါသည်။
                     </p>
                   </div>
                 )}
@@ -1314,10 +1224,10 @@ export const CopilotPage: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <Database className="h-4 w-4 text-indigo-600" />
-                    Vector Store Retrieval Results (Top-K Matches)
+                    MoE သင်ရိုးစံနှုန်း ရလဒ်များ (Curriculum Grounding Results)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Grounded knowledge retrieved via dense vector embeddings before LLM generation.
+                    ပညာရေးဝန်ကြီးဌာန (MoE) သင်ရိုးစံနှုန်းများမှ ကိုက်ညီသည့် သင်ခန်းစာ အချက်အလက်များ
                   </p>
                 </div>
 
@@ -1325,14 +1235,14 @@ export const CopilotPage: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      1. Myanmar MoE Curriculum Chunks (Top-K=5)
+                      ၁။ မြန်မာ့ပညာရေး သင်ရိုးညွှန်းတမ်း စံနှုန်းများ (MoE Curriculum)
                     </span>
                     <span className="text-[11px] text-emerald-700 font-bold">
-                      National KG+12 Framework
+                      အမျိုးသားအဆင့် KG+12 သင်ရိုး
                     </span>
                   </div>
                   {retrievedChunks.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">No curriculum chunks retrieved yet.</p>
+                    <p className="text-xs text-slate-400 italic">သင်ရိုးအချက်အလက် မရှိသေးပါ။</p>
                   ) : (
                     retrievedChunks.map((chunk, idx) => (
                       <div
@@ -1347,12 +1257,12 @@ export const CopilotPage: React.FC = () => {
                             <span>{chunk.unit_title}</span>
                           </div>
                           <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded text-[10px]">
-                            {Math.round((chunk.similarity_score || 0.9) * 100)}% match
+                            {Math.round((chunk.similarity_score || 0.9) * 100)}% ကိုက်ညီမှု
                           </span>
                         </div>
                         <p className="text-slate-700 font-medium">{chunk.topic}</p>
                         <p className="text-slate-600 text-[11px] leading-relaxed">
-                          <strong className="text-slate-800">Competency:</strong> {chunk.competency}
+                          <strong className="text-slate-800">စွမ်းရည်ရည်မှန်းချက် (Competency):</strong> {chunk.competency}
                         </p>
                         {chunk.content_burmese && (
                           <p className="text-slate-600 text-[11px] leading-relaxed font-sans bg-amber-50/60 p-1.5 rounded border border-amber-200/50">
@@ -1367,10 +1277,10 @@ export const CopilotPage: React.FC = () => {
                 {/* 2. Top-3 Prior Lesson Plans */}
                 <div className="space-y-2 pt-2 border-t border-slate-100">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
-                    2. Prior Lesson Plans (Top-K=3)
+                    ၂။ ယခင်ရေးဆွဲခဲ့သော သင်ခန်းစာ အစီအစဉ်များ (Prior Plans)
                   </span>
                   {retrievedPriorPlans.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">No prior plans retrieved.</p>
+                    <p className="text-xs text-slate-400 italic">ယခင် ရေးဆွဲထားသော သင်ခန်းစာ မရှိသေးပါ။</p>
                   ) : (
                     retrievedPriorPlans.map((plan, idx) => (
                       <div
@@ -1384,7 +1294,7 @@ export const CopilotPage: React.FC = () => {
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500">
-                          {plan.subject} • {plan.grade_level} • {plan.duration_minutes}m
+                          {plan.subject} • {plan.grade_level} • {plan.duration_minutes} မိနစ်
                         </p>
                         <p className="text-[11px] text-slate-700 italic bg-slate-50 p-1.5 rounded">
                           "{plan.key_learnings}"
@@ -1397,10 +1307,10 @@ export const CopilotPage: React.FC = () => {
                 {/* 3. Top-3 Student Performance Summaries */}
                 <div className="space-y-2 pt-2 border-t border-slate-100">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
-                    3. Student Performance & Competency Gaps (Top-K=3)
+                    ၃။ ကျောင်းသားများ၏ သင်ယူမှုစွမ်းရည်နှင့် လိုအပ်ချက်များ (Performance & Gaps)
                   </span>
                   {retrievedStudentPerformance.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">No performance benchmarks retrieved.</p>
+                    <p className="text-xs text-slate-400 italic">စွမ်းရည်ရလဒ် မရှိသေးပါ။</p>
                   ) : (
                     retrievedStudentPerformance.map((perf, idx) => (
                       <div
@@ -1420,11 +1330,11 @@ export const CopilotPage: React.FC = () => {
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-slate-600">
-                          <span>Benchmark Score: <strong>{perf.benchmark_score.toFixed(1)}%</strong></span>
-                          <span>At-Risk Students: <strong>{perf.at_risk_count}</strong></span>
+                          <span>စံနှုန်းရမှတ်: <strong>{perf.benchmark_score.toFixed(1)}%</strong></span>
+                          <span>အထူးအကူအညီလိုအပ်သူ: <strong>{perf.at_risk_count}</strong></span>
                         </div>
                         <p className="text-[11px] text-indigo-900 bg-indigo-50/70 p-1.5 rounded">
-                          <strong>Pedagogical Need:</strong> {perf.pedagogical_need}
+                          <strong>သင်ကြားရေး လိုအပ်ချက်:</strong> {perf.pedagogical_need}
                         </p>
                       </div>
                     ))
@@ -1439,10 +1349,10 @@ export const CopilotPage: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                    RAG Output Validation Report
+                    အရည်အသွေးနှင့် စံနှုန်းစစ်ဆေးချက် အစီရင်ခံစာ (Validation Report)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Rule-based, regex, and readability checks executed before presenting plan to teacher.
+                    ဆရာ/ဆရာမထံ မပြသမီ စံနှုန်းကိုက်ညီမှုနှင့် သင့်လျော်မှုကို စိစစ်ထားသော အစီရင်ခံစာ
                   </p>
                 </div>
 
@@ -1452,7 +1362,7 @@ export const CopilotPage: React.FC = () => {
                     <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-200">
                       <div>
                         <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                          Overall Validation Score
+                          စုစုပေါင်း စိစစ်ချက်ရမှတ် (Overall Score)
                         </div>
                         <div className="text-2xl font-black text-slate-900 mt-0.5">
                           {validationReport.overall_score}%
@@ -1474,7 +1384,7 @@ export const CopilotPage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 font-bold text-slate-900">
                           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                          <span>Curriculum Alignment Check (Regex + Rules)</span>
+                          <span>၁။ သင်ရိုးညွှန်းတမ်း ကိုက်ညီမှု စစ်ဆေးချက် (Curriculum Alignment)</span>
                         </div>
                         <span className="font-mono font-bold text-slate-800">
                           {validationReport.curriculum_alignment.score}%
@@ -1490,7 +1400,7 @@ export const CopilotPage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 font-bold text-slate-900">
                           <Scale className="h-4 w-4 text-indigo-600" />
-                          <span>Readability & Grade Calibration Check</span>
+                          <span>၂။ အတန်းအလိုက် ဖတ်ရှုနားလည်နိုင်မှု စစ်ဆေးချက် (Readability & Calibration)</span>
                         </div>
                         <span className="font-mono font-bold text-slate-800">
                           {validationReport.readability_score.score}%
@@ -1506,7 +1416,7 @@ export const CopilotPage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 font-bold text-slate-900">
                           <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                          <span>Language & Child Safety Filter</span>
+                          <span>၃။ ဘာသာစကားနှင့် ကလေးသူငယ် လုံခြုံမှု စစ်ဆေးချက် (Language & Child Safety)</span>
                         </div>
                         <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded text-[10px]">
                           {validationReport.language_safety_filter.status}
@@ -1519,13 +1429,13 @@ export const CopilotPage: React.FC = () => {
 
                     {/* Telemetry Footer */}
                     <div className="pt-2 text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                      <span>Evaluated: {new Date(validationReport.timestamp).toLocaleTimeString()}</span>
-                      <span>Event Bus Broadcast: ACTIVE</span>
+                      <span>စိစစ်ချိန်: {new Date(validationReport.timestamp).toLocaleTimeString()}</span>
+                      <span>စနစ်ချိတ်ဆက်မှု: အဆင်သင့် (ACTIVE)</span>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center py-12 text-slate-400 text-xs">
-                    Validation report will appear after executing the RAG generation pipeline.
+                    သင်ခန်းစာ အစီအစဉ် ရေးဆွဲပြီးပါက စိစစ်ချက် အစီရင်ခံစာ ပေါ်လာပါမည်။
                   </div>
                 )}
               </div>
@@ -1547,7 +1457,7 @@ export const CopilotPage: React.FC = () => {
               <div className="truncate">
                 <div className="flex items-center gap-2">
                   <h2 className="text-sm font-bold text-white truncate">
-                    {currentPlan?.topic || formData.topic || 'Lesson Plan Focus View'}
+                    {currentPlan?.topic || formData.topic || 'သင်ခန်းစာ အပြည့်ကြည့်ရှုမှု (Focus View)'}
                   </h2>
                   {retrievedChunks.length > 0 && (
                     <span className="font-mono text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold flex-shrink-0">
@@ -1556,7 +1466,7 @@ export const CopilotPage: React.FC = () => {
                   )}
                 </div>
                 <p className="text-xs text-slate-400">
-                  {currentPlan?.grade_level || formData.grade_level} • {currentPlan?.subject || formData.subject} • {currentPlan?.duration_minutes || formData.duration_minutes}m
+                  {currentPlan?.grade_level || formData.grade_level} • {currentPlan?.subject || formData.subject} • {currentPlan?.duration_minutes || formData.duration_minutes} မိနစ်
                 </p>
               </div>
             </div>
@@ -1569,14 +1479,14 @@ export const CopilotPage: React.FC = () => {
                   onClick={() => setTextScale((prev) => Math.max(80, prev - 10))}
                   className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40"
                   disabled={textScale <= 80}
-                  title="Zoom Out"
+                  title="ချုံ့ရန် (Zoom Out)"
                 >
                   <ZoomOut className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => setTextScale(100)}
                   className="px-2 text-xs font-mono font-medium text-slate-300 hover:text-white transition"
-                  title="Reset Zoom to 100%"
+                  title="မူလအတိုင်း ၁၀၀% ထားရန်"
                 >
                   {textScale}%
                 </button>
@@ -1584,7 +1494,7 @@ export const CopilotPage: React.FC = () => {
                   onClick={() => setTextScale((prev) => Math.min(160, prev + 10))}
                   className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition disabled:opacity-40"
                   disabled={textScale >= 160}
-                  title="Zoom In"
+                  title="ချဲ့ရန် (Zoom In)"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </button>
@@ -1595,7 +1505,7 @@ export const CopilotPage: React.FC = () => {
                 onClick={toggleLanguage}
                 disabled={translating || !currentPlan}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white transition disabled:opacity-50"
-                title="Toggle between English and Burmese"
+                title="မြန်မာ / English ပြောင်းလဲရန်"
               >
                 <Languages className="h-3.5 w-3.5 text-indigo-400" />
                 <span>{language === 'my' ? '🇲🇲 မြန်မာမူ' : '🇬🇧 English'}</span>
@@ -1605,17 +1515,17 @@ export const CopilotPage: React.FC = () => {
               <button
                 onClick={handleCopy}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white transition"
-                title="Copy Lesson Plan Content"
+                title="သင်ခန်းစာ အကြောင်းအရာ ကူးယူမည်"
               >
                 {copied ? (
                   <>
                     <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-emerald-400 font-semibold">Copied</span>
+                    <span className="text-emerald-400 font-semibold">ကူးယူပြီး</span>
                   </>
                 ) : (
                   <>
                     <Copy className="h-3.5 w-3.5 text-slate-300" />
-                    <span>Copy</span>
+                    <span>ကူးယူမည် (Copy)</span>
                   </>
                 )}
               </button>
@@ -1624,20 +1534,20 @@ export const CopilotPage: React.FC = () => {
               <button
                 onClick={() => window.print()}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-white transition"
-                title="Print or Save as PDF"
+                title="ပုံနှိပ်ရန် သို့မဟုတ် PDF အဖြစ်သိမ်းရန်"
               >
                 <Printer className="h-3.5 w-3.5 text-slate-300" />
-                <span className="hidden sm:inline">Print</span>
+                <span className="hidden sm:inline">ပုံနှိပ်မည် (Print)</span>
               </button>
 
               {/* Exit Full Screen */}
               <button
                 onClick={() => setIsFullScreen(false)}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition shadow-sm cursor-pointer"
-                title="Exit Full Screen Focus Mode (Esc)"
+                title="မျက်နှာပြင်ပြည့်မုဒ်မှ ထွက်ရန် (Esc)"
               >
                 <Minimize2 className="h-3.5 w-3.5" />
-                <span>Exit Focus <span className="text-[10px] opacity-75 font-normal ml-0.5">(Esc)</span></span>
+                <span>ထွက်မည် <span className="text-[10px] opacity-75 font-normal ml-0.5">(Esc)</span></span>
               </button>
             </div>
           </div>
@@ -1651,7 +1561,7 @@ export const CopilotPage: React.FC = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <ShieldCheck className="h-4 w-4 text-emerald-600 flex-shrink-0" />
                     <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                      Grounded in MoE Standard: [{retrievedChunks[0].standard_code}] {retrievedChunks[0].unit_title}
+                      MoE သင်ရိုးစံနှုန်း: [{retrievedChunks[0].standard_code}] {retrievedChunks[0].unit_title}
                     </span>
                   </div>
                 )}
@@ -1663,7 +1573,7 @@ export const CopilotPage: React.FC = () => {
                     {currentPlan?.subject || formData.subject}
                   </span>
                   <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md">
-                    ⏱️ {currentPlan?.duration_minutes || formData.duration_minutes} Minutes
+                    ⏱️ {currentPlan?.duration_minutes || formData.duration_minutes} မိနစ်
                   </span>
                   {currentPlan?.rag_metadata?.bloom_taxonomy_target && (
                     <span className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-md border border-amber-200">
@@ -1682,12 +1592,12 @@ export const CopilotPage: React.FC = () => {
 
               {/* Classroom Document Footer */}
               <div className="mt-12 pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-4">
-                <span>Myanmar MoE AI Teaching Copilot • Grounded RAG Pipeline</span>
+                <span>မြန်မာ့ပညာရေး စံနှုန်းအခြေပြု AI သင်ခန်းစာ အစီအစဉ်</span>
                 <button
                   onClick={() => setIsFullScreen(false)}
                   className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
                 >
-                  Return to Studio View →
+                  စတူဒီယိုသို့ ပြန်သွားရန် →
                 </button>
               </div>
             </div>

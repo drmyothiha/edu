@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { showAlertDialog } from '../context/ConfirmDialogContext';
 import { StudentOverviewResponse, StudentDTO, StudentBlockchainIDResponse, ChildDTO, WholeChildProfileDTO, AnnouncementDTO, NotificationDTO } from '../types';
 import { QRCodeImage } from '../components/QRCodeImage';
 import { WholeChildMatrix } from '../components/WholeChildMatrix';
@@ -768,7 +769,11 @@ export const ParentStudentView: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => alert('Cryptographic ZKP Proof successfully verified against Polygon Amoy Layer-2 anchor! Result: PASS ✅')}
+                onClick={() => showAlertDialog({
+                  title: 'ZKP Cryptographic Verification',
+                  message: 'Cryptographic ZKP Proof successfully verified against Polygon Amoy Layer-2 anchor! Result: PASS ✅',
+                  variant: 'success',
+                })}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition"
               >
                 <CheckCircle2 className="h-4 w-4" />
@@ -782,7 +787,11 @@ export const ParentStudentView: React.FC = () => {
                     merkle_root: blockchainId?.merkle_root,
                     attestation_time: new Date().toISOString()
                   }, null, 2));
-                  alert('ZKP Proof payload copied to clipboard!');
+                  showAlertDialog({
+                    title: 'အောင်မြင်ပါသည် (Copied)',
+                    message: 'ZKP Proof payload copied to clipboard!',
+                    variant: 'info',
+                  });
                 }}
                 className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
               >

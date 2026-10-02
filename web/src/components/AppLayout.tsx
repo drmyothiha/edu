@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -17,6 +17,7 @@ import {
   Building,
   ChevronDown,
   UserCircle,
+  ArrowLeft,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { NotificationBell } from './NotificationBell';
@@ -26,6 +27,7 @@ export const AppLayout: React.FC = () => {
   const { user, logout, quickLogin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const mainContentRef = useRef<HTMLElement>(null);
   const searchParams = new URLSearchParams(location.search);
   const currentSchoolId = searchParams.get('school_id');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -34,9 +36,36 @@ export const AppLayout: React.FC = () => {
   const [activeChatConvId, setActiveChatConvId] = useState<string | undefined>();
   const [activeChatStudentId, setActiveChatStudentId] = useState<string | undefined>();
 
+  // Reset main content scroll position to top when navigating across pages
+  useEffect(() => {
+    mainContentRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const showBackButton = location.pathname.includes('/classes/') || Boolean(location.pathname.match(/\/students\/[^/]+/));
+
+  const handleBack = () => {
+    if (location.pathname.includes('/classes/')) {
+      const basePath = location.pathname.startsWith('/admin')
+        ? '/admin'
+        : location.pathname.startsWith('/teacher')
+        ? '/teacher'
+        : '/school-admin';
+      navigate(`${basePath}${location.search}`);
+    } else if (location.pathname.includes('/students/')) {
+      const basePath = location.pathname.startsWith('/admin')
+        ? '/admin'
+        : location.pathname.startsWith('/teacher')
+        ? '/teacher'
+        : '/school-admin';
+      navigate(`${basePath}/students${location.search}`);
+    } else if (window.history.length > 1) {
+      navigate(-1);
+    }
   };
 
   const handleSwitchRole = async (role: UserRole, customEmail?: string, customPass?: string) => {
@@ -73,8 +102,11 @@ export const AppLayout: React.FC = () => {
   const teacherNav: NavItem[] = [
     { to: '/teacher', label: 'My Classes', icon: BookOpen, end: true },
     { to: '/teacher/copilot', label: 'AI Lesson Copilot', icon: Sparkles, badge: 'AI' },
+    { to: '/teacher/profile', label: 'မိမိပရိုဖိုင် (Profile)', icon: UserCircle },
     { to: '/gate-kiosk', label: 'Gate Kiosk', icon: ShieldCheck, badge: 'NFC' },
   ];
+
+  const profileRoute = user?.role === 'teacher' ? '/teacher/profile' : '/school-admin/profile';
 
   let currentNav: NavItem[] = teacherNav;
   if (user?.role === 'sysadmin') {
@@ -84,10 +116,20 @@ export const AppLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      {/* Mobile Top Header */}
-      <header className="md:hidden bg-indigo-900 text-white flex items-center justify-between px-4 py-3 border-b border-indigo-800 sticky top-0 z-40">
+    <div className="h-screen h-[100dvh] bg-slate-50 flex flex-col md:flex-row overflow-hidden">
+      {/* Mobile Top Header (Static) */}
+      <header className="md:hidden flex-shrink-0 bg-indigo-900 text-white flex items-center justify-between px-4 py-3 border-b border-indigo-800 z-40">
         <div className="flex items-center gap-2">
+          {showBackButton && (
+            <button
+              type="button"
+              onClick={handleBack}
+              className="p-1 rounded-md text-white hover:bg-indigo-800 transition mr-1"
+              title={location.pathname.includes('/classes/') ? 'အတန်းများ စာရင်းသို့ ပြန်သွားရန် (Back to Classes)' : 'နောက်သို့ ပြန်သွားရန် (Back)'}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          )}
           <GraduationCap className="h-6 w-6 text-indigo-300" />
           <span className="font-bold tracking-tight text-base">EduPlatform</span>
         </div>
@@ -115,14 +157,14 @@ export const AppLayout: React.FC = () => {
         </div>
       </header>
 
-      {/* Sidebar for Desktop & Mobile Overlay */}
+      {/* Sidebar for Desktop (Static) & Mobile Overlay */}
       <aside
         className={`${
-          mobileMenuOpen ? 'block' : 'hidden'
-        } md:flex flex-col w-full md:w-64 bg-slate-900 text-slate-300 flex-shrink-0 border-r border-slate-800 z-30`}
+          mobileMenuOpen ? 'fixed inset-x-0 top-[53px] bottom-0 z-40 flex flex-col' : 'hidden'
+        } md:static md:inset-auto md:flex flex-col w-full md:w-64 bg-slate-900 text-slate-300 flex-shrink-0 border-r border-slate-800 md:z-30 h-full overflow-hidden`}
       >
         {/* Brand */}
-        <div className="hidden md:flex items-center gap-3 px-6 py-5 border-b border-slate-800">
+        <div className="hidden md:flex items-center gap-3 px-6 py-5 border-b border-slate-800 flex-shrink-0">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-white shadow">
             <GraduationCap className="h-6 w-6" />
           </div>
@@ -135,9 +177,9 @@ export const AppLayout: React.FC = () => {
         {/* Current User Info Card */}
         {user && (
           <NavLink
-            to="/school-admin/profile"
+            to={profileRoute}
             onClick={() => setMobileMenuOpen(false)}
-            className="block px-4 py-3.5 border-b border-slate-800 bg-slate-950/40 hover:bg-slate-800/60 transition group cursor-pointer"
+            className="block px-4 py-3.5 border-b border-slate-800 bg-slate-950/40 hover:bg-slate-800/60 transition group cursor-pointer flex-shrink-0"
             title="ပရိုဖိုင် ပြင်ဆင်ရန် / Edit Profile"
           >
             <div className="flex items-center gap-3">
@@ -232,7 +274,7 @@ export const AppLayout: React.FC = () => {
         </nav>
 
         {/* Quick Role Switcher for Testing */}
-        <div className="p-3 border-t border-slate-800">
+        <div className="p-3 border-t border-slate-800 flex-shrink-0">
           <div className="relative">
             <button
               onClick={() => setRoleMenuOpen(!roleMenuOpen)}
@@ -311,7 +353,7 @@ export const AppLayout: React.FC = () => {
         </div>
 
         {/* Footer & Logout */}
-        <div className="p-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <div className="p-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
           <div className="flex items-center gap-1.5 text-slate-400">
             <Globe className="h-3.5 w-3.5" />
             <span>EN / မြန်မာ</span>
@@ -326,11 +368,23 @@ export const AppLayout: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Desktop Navigation & User Controls Bar */}
-        <header className="hidden md:flex bg-white border-b border-slate-200 px-6 py-2.5 items-center justify-between sticky top-0 z-20 shadow-xs">
-          <div className="flex items-center gap-2">
+      {/* Right Column: Static Top Bar + Scrollable Main Content */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top Desktop Navigation & User Controls Bar (Static) */}
+        <header className="hidden md:flex flex-shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 items-center justify-between z-20 shadow-xs">
+          <div className="flex items-center gap-3">
+            {showBackButton && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 hover:border-slate-300 text-xs font-bold text-slate-700 shadow-2xs transition group"
+                title={location.pathname.includes('/classes/') ? 'အတန်းများ စာရင်းသို့ ပြန်သွားရန် (Back to Classes)' : 'နောက်သို့ ပြန်သွားရန် (Back)'}
+              >
+                <ArrowLeft className="h-4 w-4 text-slate-500 group-hover:-translate-x-0.5 transition-transform" />
+                <span>{location.pathname.includes('/classes/') ? 'အတန်းများ စာရင်း (Back)' : 'နောက်သို့ (Back)'}</span>
+              </button>
+            )}
+
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               {user?.role === 'sysadmin' && 'National SysAdmin Portal (MIMU Registry)'}
               {user?.role === 'school_admin' && 'School Facility Management'}
@@ -351,7 +405,7 @@ export const AppLayout: React.FC = () => {
 
             {/* User Info chip */}
             <NavLink
-              to="/school-admin/profile"
+              to={profileRoute}
               className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:border-indigo-300 text-xs text-slate-700 border border-slate-200 transition group cursor-pointer"
               title="ပရိုဖိုင် ပြင်ဆင်ရန် / Edit Profile"
             >
@@ -394,8 +448,11 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
-        <Outlet />
-      </main>
+        {/* Main Content Area (Scrollable) */}
+        <main ref={mainContentRef} tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto focus:outline-none">
+          <Outlet />
+        </main>
+      </div>
 
       <ChatModal
         isOpen={chatOpen}

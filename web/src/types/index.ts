@@ -115,6 +115,9 @@ export interface ClassDTO {
   teacher_id: string;
   academic_year: string;
   school_id?: string;
+  code?: string;
+  section?: string;
+  student_count?: number;
   created_at: string;
 }
 

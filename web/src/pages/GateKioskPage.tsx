@@ -43,6 +43,7 @@ import {
 } from '../services/offlineGateStorage';
 import { playSuccessChime, playDuplicateAlert, playErrorBuzzer } from '../utils/audioFeedback';
 import { api } from '../api/client';
+import { showAlertDialog } from '../context/ConfirmDialogContext';
 
 // Burmese Day Names
 const BURMESE_DAYS = ['တနင်္ဂနွေ', 'တနင်္လာ', 'အင်္ဂါ', 'ဗုဒ္ဓဟူး', 'ကြာသပတေး', 'သောကြာ', 'စနေ'];
@@ -504,8 +505,12 @@ export const GateKioskPage: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Backup export failed: ' + err);
+    } catch (err: any) {
+      showAlertDialog({
+        title: 'အရန်ဖိုင် ထုတ်ယူခြင်း မအောင်မြင်ပါ',
+        message: 'Backup export failed: ' + (err?.message || err),
+        variant: 'danger',
+      });
     }
   };
 
@@ -518,10 +523,18 @@ export const GateKioskPage: React.FC = () => {
       try {
         const text = event.target?.result as string;
         const result = await offlineGateStorage.importBackupBundle(text);
-        alert(`အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!\nကျောင်းသား: ${result.importedStudents} ဦး\nမှတ်တမ်း: ${result.importedEvents} ခု`);
+        showAlertDialog({
+          title: 'ထည့်သွင်းခြင်း အောင်မြင်ပါသည်',
+          message: `အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!\nကျောင်းသား: ${result.importedStudents} ဦး\nမှတ်တမ်း: ${result.importedEvents} ခု`,
+          variant: 'success',
+        });
         await refreshStorageStats();
       } catch (err: any) {
-        alert('Import failed: ' + err.message);
+        showAlertDialog({
+          title: 'ထည့်သွင်းခြင်း မအောင်မြင်ပါ',
+          message: 'Import failed: ' + err.message,
+          variant: 'danger',
+        });
       }
     };
     reader.readAsText(file);

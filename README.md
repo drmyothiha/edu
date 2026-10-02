@@ -416,3 +416,81 @@ $$\text{School Code} = \text{[MIMU Ward or Village Tract P-Code]} - \text{[Categ
 - **Pre-Seeded Data**: All 15 States and Regions, 40+ key Townships, sample Wards/Village Tracts, and flagship regional hub facilities in Yangon, Mandalay, Shan State, and Nay Pyi Taw.
 - **On-Demand Facility Creation**: Additional schools across any state or township can be provisioned instantaneously via the Sysadmin Dashboard (`/edu/sysadmin`) with automatic Option A code formatting and Burmese Unicode place resolution.
 
+---
+
+## 🔐 Cryptographic Identity & Zero-Knowledge (ZKP) Proofs
+
+The platform implements W3C-compliant Decentralized Identifiers (DIDs), selective attribute disclosure, and cryptographic Zero-Knowledge Proofs (ZKP) allowing students, parents, and alumni to prove claims (e.g., minimum GPA, age verification, graduation standing) without exposing Personally Identifiable Information (PII).
+
+### 1. Student Decentralized Identifier (DID) Encoding
+
+Each enrolled student is assigned a deterministic, W3C-compliant Decentralized Identifier tied directly to their MIMU region code, Option A school facility code, intake academic year, and unique student roll sequence:
+
+```
+[Student Decentralized Identifier (DID)]
+  did:edu:mm:013:MMR013001001-HS01-2026-STU0042
+  │   │   │  │   └──────────────┬───────────────┘
+  │   │   │  │                  ├── Facility Code:    MMR013001001-HS01 (Option A School Code)
+  │   │   │  │                  │     ├── P-Code:     MMR013001001 (Dagon Township, Ward 1)
+  │   │   │  │                  │     └── Category:   HS01 (Basic Education High School #1)
+  │   │   │  │                  ├── Academic Year:    2026 (Enrollment Cohort Year)
+  │   │   │  │                  └── Roll Sequence:    STU0042 (Padded 4-Digit Unique Index)
+  │   │   │  └── Region P-Code: 013 (Yangon Region MIMU code, trimmed 'MMR')
+  │   │   └── Country Code:     mm (ISO-3166-1 alpha-2 for Myanmar)
+  │   └── System Namespace:     edu (Decentralized Education Credential Network)
+  └── URI Scheme:               did (W3C Decentralized Identifier Standard)
+```
+
+#### Tree Structure Breakdown:
+```
+[Student DID Structure: did:edu:mm:<region>:<school_code>-<year>-STU<seq>]
+  ├── Scheme & Namespace: "did:edu"   ─► W3C Standard Identifier
+  ├── Country Scope:      "mm"        ─► Myanmar (ISO-3166-1 alpha-2)
+  ├── Region Code:        "013"       ─► MIMU Region / State (e.g. 013 = Yangon)
+  └── Specific Identifier:
+      ├── Facility Code:  "MMR013001001-HS01" ─► Ward P-Code + School Category & Sequence
+      ├── Academic Year:  "2026"                ─► Enrollment Batch
+      └── Roll Identifier:"STU0042"             ─► 4-Digit Unique Student Index
+```
+
+- **Issuer School DID**: Formatted as `did:edu:school:<school_code>` (e.g. `did:edu:school:MMR013001001-HS01`).
+- **Implementation Reference**: [`internal/identity/identity.go`](internal/identity/identity.go) (`FormatStudentDID`, `FormatSchoolDID`)
+
+---
+
+### 2. Zero-Knowledge Proof (ZKP) Architecture & Selective Disclosure
+
+To prove academic credentials (such as qualifying for scholarships, university admissions, or jobs) without exposing private transcripts, birthdays, or roll numbers, credentials are built as salted Merkle trees:
+
+```
+[Student Attributes]
+  ├── Date of Birth: 2006-03-15  + Salt_1  ─► SHA-256 ─┐
+  ├── Graduation:    "Graduated" + Salt_2  ─► SHA-256 ─┼─► Merkle Tree ─► [Claims Root]
+  └── GPA:           "3.88"      + Salt_3  ─► SHA-256 ─┘                    │
+                                                                             │ Signed with School Private Key
+                                                                             ▼
+                                                                  [Ed25519 Digital Signature]
+                                                                             │
+                                                                             ▼
+                                                                 Anchored on Layer-2 Blockchain
+```
+
+#### How It Works:
+1. **Salted Claim Commitments**: Each private attribute (DOB, GPA, graduation standing, roll number) is salted with 32 bytes of secure random entropy:
+   $$\text{Commitment} = \text{SHA-256}(\text{attribute\_name} : \text{value} : \text{salt})$$
+2. **Merkle Claims Root**: All attribute commitments are arranged into a sorted Merkle tree. The resulting `ClaimsRoot` uniquely represents the entire credential.
+3. **School Authority Signature**: The accredited school signs the `ClaimsRoot` using its Ed25519 private key.
+4. **On-Chain L2 Anchor**: The batch Merkle root is anchored onto Polygon Layer-2 for tamper-proof auditability.
+5. **Zero-Knowledge Predicate Verification**:
+   - **GPA $\ge$ 3.5**: The holder generates a Fiat-Shamir challenge-response proof over the GPA commitment. The verifier validates mathematical inclusion in the signed `ClaimsRoot` and confirms the threshold $\ge 3.50$ is satisfied, without learning whether the actual GPA is 3.55, 3.88, or 4.00.
+   - **Age $\ge$ 18**: Confirms the student is of legal majority without revealing their birth date.
+   - **Graduation Status**: Proves completion of secondary education without revealing exam scores.
+   - **Selective Disclosure**: Revealing only selected attributes (e.g., School Name & Academic Year) while keeping Name and Roll Number completely blinded.
+
+#### Where to Verify:
+- **Web Verifier**: `http://localhost:5173/verify` (or `/edu/verify`)
+- **Backend APIs**:
+  - `POST /api/v1/zkp/verify-predicate`
+  - `POST /api/v1/zkp/verify-disclosure`
+  - `GET /api/v1/blockchain/verify?identifier=<did_or_hash>`
+

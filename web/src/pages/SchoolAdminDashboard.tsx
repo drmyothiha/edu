@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../api/client';
-import { ClassDTO, CreateClassRequest, SchoolDTO, FacultyMemberDTO } from '../types';
+import { ClassDTO, CreateClassRequest, SchoolDTO, FacultyMemberDTO, SchoolStudentDTO } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import {
   Building,
   GraduationCap,
@@ -12,7 +13,6 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  ExternalLink,
   RefreshCw,
   MapPin,
   Phone,
@@ -23,9 +23,12 @@ import {
   Search,
   ChevronRight,
   ShieldCheck,
-  FileSpreadsheet,
+  ArrowRightLeft,
+  Check,
+  ArrowRight,
+  UserCheck,
 } from 'lucide-react';
-import { Link, useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { SchoolSwitcherModal } from '../components/SchoolSwitcherModal';
 
 const STANDARD_GRADES = [
@@ -52,8 +55,18 @@ const formatTeacherName = (rawName?: string) => {
   return cleaned || rawName;
 };
 
+const getClassSlug = (cls: ClassDTO): string => {
+  if (cls.code) return cls.code;
+  const g = cls.grade_level.replace(/Grade\s*/i, 'G').replace(/\s+/g, '');
+  const match = cls.name.match(/Section\s*([A-Za-z0-9]+)/i);
+  const sec = match ? match[1].toUpperCase() : '';
+  return sec ? `${g}${sec}` : cls.id;
+};
+
 export const SchoolAdminDashboard: React.FC = () => {
   const { user } = useAuth();
+  const { confirm } = useConfirm();
+  const navigate = useNavigate();
   const location = useLocation();
   const basePath = location.pathname.startsWith('/admin') ? '/admin' : '/school-admin';
   const [searchParams, setSearchParams] = useSearchParams();
@@ -86,6 +99,15 @@ export const SchoolAdminDashboard: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [students, setStudents] = useState<SchoolStudentDTO[]>([]);
+
+  // Move / Transfer Students modal
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [sourceClassId, setSourceClassId] = useState<string>('');
+  const [targetClassId, setTargetClassId] = useState<string>('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [moving, setMoving] = useState(false);
+
   // Determine effective school ID
   const effectiveSchoolId = useMemo(() => {
     if (urlSchoolId) return urlSchoolId;
@@ -93,7 +115,7 @@ export const SchoolAdminDashboard: React.FC = () => {
     return 'a0000000-0000-0000-0000-000000000001';
   }, [urlSchoolId, user?.school_id]);
 
-  // Fetch school data, classes, and faculty
+  // Fetch school data, classes, faculty, and students
   const fetchSchoolData = async () => {
     setLoading(true);
     setError(null);
@@ -111,22 +133,120 @@ export const SchoolAdminDashboard: React.FC = () => {
       const clsList = await api.classes.list(effectiveSchoolId || undefined);
       setClasses(clsList);
 
-      // Fetch faculty assigned to this campus
+      // Fetch faculty and students assigned to this campus
       if (effectiveSchoolId) {
         try {
-          const fac = await api.schools.getFaculty(effectiveSchoolId);
+          const [fac, stList] = await Promise.all([
+            api.schools.getFaculty(effectiveSchoolId).catch(() => []),
+            api.students.listBySchool(effectiveSchoolId).catch(() => []),
+          ]);
           setFaculty(fac);
+          setStudents(stList);
           if (fac.length > 0 && !selectedTeacherId) {
             setSelectedTeacherId(fac[0].id);
           }
         } catch {
           setFaculty([]);
+          setStudents([]);
         }
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load school dashboard metrics');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const studentCountByClass = useMemo(() => {
+    const map = new Map<string, number>();
+    students.forEach((s) => {
+      if (s.class_id) {
+        map.set(s.class_id, (map.get(s.class_id) || 0) + 1);
+      }
+    });
+    return map;
+  }, [students]);
+
+  const studentCountByGrade = useMemo(() => {
+    const map = new Map<string, number>();
+    students.forEach((s) => {
+      const g = s.grade_level || 'KG';
+      map.set(g, (map.get(g) || 0) + 1);
+    });
+    return map;
+  }, [students]);
+
+  const sourceClassStudents = useMemo(() => {
+    if (!sourceClassId) return [];
+    return students.filter((s) => s.class_id === sourceClassId);
+  }, [students, sourceClassId]);
+
+  const handleMoveStudents = async () => {
+    if (!targetClassId || selectedStudentIds.length === 0) return;
+    setMoving(true);
+    setError(null);
+    try {
+      await Promise.all(
+        selectedStudentIds.map((studentId) =>
+          api.classes.enrollStudent(targetClassId, studentId)
+        )
+      );
+      const targetCls = classes.find((c) => c.id === targetClassId);
+      setSuccessMsg(
+        `ကျောင်းသား ${selectedStudentIds.length} ဦးအား "${targetCls?.name || 'အတန်းသစ်'}" သို့ အောင်မြင်စွာ ပြောင်းရွှေ့ပြီးပါပြီ။`
+      );
+      setMoveModalOpen(false);
+      setSelectedStudentIds([]);
+      await fetchSchoolData();
+    } catch (err: any) {
+      setError(err.message || 'ကျောင်းသားများ အတန်းပြောင်းရွှေ့ခြင်း မအောင်မြင်ပါ');
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  const handleQuickMoveHalfToG1AndG2 = async () => {
+    const kgClass =
+      classes.find((c) => c.grade_level === 'KG' && c.name.includes('Section A')) ||
+      classes.find((c) => c.grade_level === 'KG');
+    const g1Class =
+      classes.find((c) => c.grade_level === 'Grade 1' && c.name.includes('Section A')) ||
+      classes.find((c) => c.grade_level === 'Grade 1');
+    const g2Class =
+      classes.find((c) => c.grade_level === 'Grade 2' && c.name.includes('Section A')) ||
+      classes.find((c) => c.grade_level === 'Grade 2');
+
+    if (!kgClass || !g1Class || !g2Class) {
+      setError('KG, Grade 1 နှင့် Grade 2 အတန်းများ မပြည့်စုံပါ');
+      return;
+    }
+
+    const kgStudents = students.filter((s) => s.class_id === kgClass.id);
+    if (kgStudents.length < 2) {
+      setError('KG အတန်းတွင် ကျောင်းသား အရေအတွက် မလုံလောက်ပါ');
+      return;
+    }
+
+    const halfCount = Math.floor(kgStudents.length / 2);
+    const toG1 = kgStudents.slice(0, Math.ceil(halfCount / 2));
+    const toG2 = kgStudents.slice(Math.ceil(halfCount / 2), halfCount);
+
+    setMoving(true);
+    setError(null);
+    try {
+      await Promise.all([
+        ...toG1.map((s) => api.classes.enrollStudent(g1Class.id, s.id)),
+        ...toG2.map((s) => api.classes.enrollStudent(g2Class.id, s.id)),
+      ]);
+      setSuccessMsg(
+        `KG မှ ကျောင်းသား ${halfCount} ဦးအား ${g1Class.name} (${toG1.length} ဦး) နှင့် ${g2Class.name} (${toG2.length} ဦး) သို့ အောင်မြင်စွာ ပြောင်းရွှေ့ပြီးပါပြီ။`
+      );
+      setMoveModalOpen(false);
+      await fetchSchoolData();
+    } catch (err: any) {
+      setError(err.message || 'ကျောင်းသားများ အတန်းပြောင်းရွှေ့ခြင်း မအောင်မြင်ပါ');
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -190,7 +310,15 @@ export const SchoolAdminDashboard: React.FC = () => {
 
   // Handle Delete Class Section
   const handleDeleteClass = async (classId: string, className: string) => {
-    if (!window.confirm(`Are you sure you want to remove section "${className}" from this campus?`)) {
+    const isConfirmed = await confirm({
+      title: 'အတန်း အခန်းခွဲ ပယ်ဖျက်ရန် (Remove Section)',
+      message: `Are you sure you want to remove section "${className}" from this campus?`,
+      confirmText: 'ပယ်ဖျက်မည် (Remove)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'danger',
+      cautionText: 'ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ (This action cannot be undone)',
+    });
+    if (!isConfirmed) {
       return;
     }
     setDeletingId(classId);
@@ -293,97 +421,6 @@ export const SchoolAdminDashboard: React.FC = () => {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
-      {/* Top Facility Header & School Switcher */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 text-white shadow-md">
-            <Building className="h-7 w-7" />
-          </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                {school ? (school.name_my || school.name) : 'School Facility Center'}
-              </h1>
-              {school && (
-                <span className="font-mono text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
-                  {school.code}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
-                <ShieldCheck className="h-3 w-3 text-emerald-600" /> Facility Isolated
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-500">
-              <span className="font-sans font-medium text-slate-700">ကျောင်းတွင်း စီမံခန့်ခွဲမှု • Campus Facility Admin Portal</span>
-              {school && (
-                <>
-                  <span>•</span>
-                  <span className="flex items-center gap-1 text-slate-600">
-                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                    {school.city}, {school.region}
-                  </span>
-                  {school.phone && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-1 font-mono text-slate-600">
-                        <Phone className="h-3 w-3 text-slate-400" />
-                        {school.phone}
-                      </span>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Facility Actions & Multi-School Switcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Fast IndexedDB School Switcher for sysadmin or admin */}
-          {(user?.role === 'sysadmin' || user?.role === 'admin') && (
-            <>
-              <button
-                type="button"
-                onClick={() => setSwitcherOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold shadow-sm transition"
-                title="Switch School Facility via IndexedDB Directory"
-              >
-                <Building className="h-3.5 w-3.5 text-indigo-600" /> ကျောင်းပြောင်းရန် (Switch School)
-              </button>
-              <Link
-                to="/sysadmin"
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition"
-                title="Return to Sysadmin Schools Directory"
-              >
-                ကျောင်းများ စာရင်း (Schools)
-              </Link>
-            </>
-          )}
-
-          <button
-            onClick={fetchSchoolData}
-            className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
-            title="Refresh facility metrics"
-          >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </button>
-
-          <Link
-            to={`${basePath}/timetable${urlSchoolId ? `?school_id=${urlSchoolId}` : ''}`}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold shadow-sm transition"
-          >
-            <CalendarCheck className="h-4 w-4 text-indigo-600" /> အချိန်ဇယားနှင့် အဆိုင်း (Timetable & Shifts)
-          </Link>
-
-          <button
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow transition"
-          >
-            <Plus className="h-4 w-4" /> Add Class Section
-          </button>
-        </div>
-      </div>
 
       {/* Feedback Alerts */}
       {error && (
@@ -452,6 +489,21 @@ export const SchoolAdminDashboard: React.FC = () => {
                 <List className="h-3.5 w-3.5" /> ဇယားဖြင့်
               </button>
             </div>
+
+            <button
+              onClick={() => {
+                if (classes.length > 0) {
+                  const kgCls = classes.find((c) => c.grade_level === 'KG' && c.name.includes('Section A')) || classes[0];
+                  setSourceClassId(kgCls.id);
+                  const firstTarget = classes.find((c) => c.id !== kgCls.id && (c.grade_level === 'Grade 1' || c.grade_level === 'Grade 2')) || classes.find((c) => c.id !== kgCls.id);
+                  if (firstTarget) setTargetClassId(firstTarget.id);
+                }
+                setMoveModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow transition"
+            >
+              <ArrowRightLeft className="h-4 w-4" /> ကျောင်းသားများ အတန်းပြောင်းရွှေ့ရန်
+            </button>
 
             <button
               onClick={() => {
@@ -596,6 +648,10 @@ export const SchoolAdminDashboard: React.FC = () => {
                         <span className="text-xs text-slate-400 font-medium">
                           {items.length} {items.length === 1 ? 'Section' : 'Sections'}
                         </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                          <Users className="h-3 w-3 text-slate-500" />
+                          ကျောင်းသား {studentCountByGrade.get(grade) || 0} ဦး
+                        </span>
                       </div>
 
                       <button
@@ -625,16 +681,20 @@ export const SchoolAdminDashboard: React.FC = () => {
                           return (
                             <div
                               key={cls.id}
-                              className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition"
+                              onClick={() => navigate(`${basePath}/classes/${getClassSlug(cls)}${location.search}`)}
+                              className="px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-indigo-50/40 cursor-pointer transition group"
+                              title={`${cls.name} အသေးစိတ်နှင့် ထိုင်ခုံပုံစံ ကြည့်ရန် နှိပ်ပါ`}
                             >
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs group-hover:bg-indigo-600 group-hover:text-white transition">
                                   {cls.name.includes('Section')
                                     ? cls.name.split('Section')[1]?.trim() || 'A'
                                     : cls.name.slice(0, 3)}
                                 </div>
                                 <div>
-                                  <h4 className="text-sm font-bold text-slate-900">{cls.name}</h4>
+                                  <div className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition">
+                                    {cls.name}
+                                  </div>
                                   <p className="text-xs text-slate-600 mt-0.5 flex items-center gap-2">
                                     <span className="font-mono text-slate-500">{cls.academic_year}</span>
                                     <span>အတန်းပိုင် : <strong className="font-semibold text-slate-800">{formatTeacherName(teacherName)}</strong></span>
@@ -642,24 +702,17 @@ export const SchoolAdminDashboard: React.FC = () => {
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2 self-end sm:self-center">
-                                <Link
-                                  to={`${basePath}/classes/${cls.id}/exam-marks${location.search}`}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-xs font-semibold text-amber-900 shadow-2xs transition"
-                                  title="စာမေးပွဲ အမှတ်စာရင်း (Google Sheet / Excel)"
-                                >
-                                  <FileSpreadsheet className="h-3 w-3 text-amber-700" /> အမှတ်စာရင်း
-                                </Link>
-
-                                <Link
-                                  to={`/teacher/classes/${cls.id}/attendance`}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-sm transition"
-                                >
-                                  ကျောင်းခေါ်ချိန် <ExternalLink className="h-3 w-3 text-slate-400" />
-                                </Link>
-
+                              <div className="flex items-center gap-2.5">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Users className="h-3 w-3 text-indigo-500" />
+                                  {studentCountByClass.get(cls.id) || 0} ဦး
+                                </span>
                                 <button
-                                  onClick={() => handleDeleteClass(cls.id, cls.name)}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteClass(cls.id, cls.name);
+                                  }}
                                   disabled={deletingId === cls.id}
                                   className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition"
                                   title="Remove section"
@@ -690,6 +743,7 @@ export const SchoolAdminDashboard: React.FC = () => {
                   <th className="py-3.5 px-4">အတန်းအဆင့်</th>
                   <th className="py-3.5 px-4">ပညာသင်နှစ်</th>
                   <th className="py-3.5 px-4">အတန်းပိုင်</th>
+                  <th className="py-3.5 px-4">ကျောင်းသားဦးရေ</th>
                   <th className="py-3.5 px-5 text-right">လုပ်ဆောင်ချက်</th>
                 </tr>
               </thead>
@@ -698,8 +752,13 @@ export const SchoolAdminDashboard: React.FC = () => {
                   const teacherName = facultyMap.get(cls.teacher_id) || 'Facility Faculty';
                   const stageInfo = getStageInfo(cls.grade_level);
                   return (
-                    <tr key={cls.id} className="hover:bg-slate-50/80 transition">
-                      <td className="py-3.5 px-5 font-bold text-slate-900">{cls.name}</td>
+                    <tr
+                      key={cls.id}
+                      onClick={() => navigate(`${basePath}/classes/${getClassSlug(cls)}${location.search}`)}
+                      className="hover:bg-indigo-50/40 cursor-pointer transition group"
+                      title={`${cls.name} အသေးစိတ်နှင့် ထိုင်ခုံပုံစံ ကြည့်ရန် နှိပ်ပါ`}
+                    >
+                      <td className="py-3.5 px-5 font-bold text-slate-900 group-hover:text-indigo-600 transition">{cls.name}</td>
                       <td className="py-3.5 px-4">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${stageInfo.badgeClass}`}>
                           {cls.grade_level}
@@ -711,27 +770,28 @@ export const SchoolAdminDashboard: React.FC = () => {
                       <td className="py-3.5 px-4 text-xs text-slate-800 font-medium">
                         {formatTeacherName(teacherName)}
                       </td>
-                      <td className="py-3.5 px-5 text-right space-x-2">
-                        <Link
-                          to={`${basePath}/classes/${cls.id}/exam-marks${location.search}`}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-900 mr-1"
-                          title="စာမေးပွဲ အမှတ်စာရင်း (Google Sheet / Excel)"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 inline" /> အမှတ်စာရင်း
-                        </Link>
-                        <Link
-                          to={`/teacher/classes/${cls.id}/attendance`}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                        >
-                          ကျောင်းခေါ်ချိန် <ExternalLink className="h-3 w-3" />
-                        </Link>
+                      <td className="py-3.5 px-4 text-xs font-bold">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          <Users className="h-3 w-3 text-indigo-500" />
+                          {studentCountByClass.get(cls.id) || 0} ဦး
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-5 text-right">
                         <button
-                          onClick={() => handleDeleteClass(cls.id, cls.name)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteClass(cls.id, cls.name);
+                          }}
                           disabled={deletingId === cls.id}
-                          className="text-slate-400 hover:text-rose-600 p-1"
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition inline-block"
                           title="Remove section"
                         >
-                          <Trash2 className="h-3.5 w-3.5 inline" />
+                          {deletingId === cls.id ? (
+                            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-rose-600 border-t-transparent" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -742,6 +802,205 @@ export const SchoolAdminDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Move / Transfer Students Modal */}
+      {moveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 relative animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => {
+                setMoveModalOpen(false);
+                setSelectedStudentIds([]);
+              }}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+                <ArrowRightLeft className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">ကျောင်းသားများ အတန်းပြောင်းရွှေ့ရန်</h3>
+                <p className="text-xs text-slate-500">Move Students Between Classes & Sections</p>
+              </div>
+            </div>
+
+            {/* Quick Action Banner for KG -> Grade 1 & 2 */}
+            <div className="mt-4 p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                  လျင်မြန်စွာ အတန်းခွဲဝေခြင်း (Quick 50% Split)
+                </div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">
+                  KG ကျောင်းသား ထက်ဝက်ကို Grade 1 နှင့် Grade 2 သို့ ချက်ချင်း ခွဲဝေပြောင်းရွှေ့မည်
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleQuickMoveHalfToG1AndG2}
+                disabled={moving}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1 flex-shrink-0"
+              >
+                {moving ? (
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                )}
+                ခွဲဝေရွှေ့ပြောင်းမည်
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 overflow-y-auto flex-1 pr-1">
+              {/* Class Selectors Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Source Class */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    မူလအတန်း (Source Class)
+                  </label>
+                  <select
+                    value={sourceClassId}
+                    onChange={(e) => {
+                      setSourceClassId(e.target.value);
+                      setSelectedStudentIds([]);
+                    }}
+                    className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="">-- မူလအတန်း ရွေးပါ --</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({studentCountByClass.get(c.id) || 0} ဦး)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Target Class */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    ပြောင်းရွှေ့မည့် အတန်း (Target Class)
+                  </label>
+                  <select
+                    value={targetClassId}
+                    onChange={(e) => setTargetClassId(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="">-- ပြောင်းရွှေ့မည့်အတန်း ရွေးပါ --</option>
+                    {classes
+                      .filter((c) => c.id !== sourceClassId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({studentCountByClass.get(c.id) || 0} ဦး)
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Student Checklist */}
+              {sourceClassId && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700">
+                      ကျောင်းသားများ ရွေးချယ်ရန် ({selectedStudentIds.length} / {sourceClassStudents.length} ဦး)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudentIds(sourceClassStudents.map((s) => s.id))}
+                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
+                      >
+                        အားလုံးရွေးမည်
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudentIds([])}
+                        className="text-xs font-bold text-slate-500 hover:text-slate-700"
+                      >
+                        ဖျက်မည်
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 p-1">
+                    {sourceClassStudents.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        ဤအတန်းတွင် ကျောင်းသား မရှိသေးပါ
+                      </div>
+                    ) : (
+                      sourceClassStudents.map((st) => {
+                        const isSelected = selectedStudentIds.includes(st.id);
+                        return (
+                          <label
+                            key={st.id}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition text-xs ${
+                              isSelected ? 'bg-indigo-50/70 font-semibold text-indigo-900' : 'hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedStudentIds((prev) => [...prev, st.id]);
+                                  } else {
+                                    setSelectedStudentIds((prev) => prev.filter((id) => id !== st.id));
+                                  }
+                                }}
+                                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>{st.full_name}</span>
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-400">
+                              {st.email.split('@')[0]}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="mt-5 flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <span className="text-xs text-slate-500">
+                {selectedStudentIds.length} ဦး ရွေးချယ်ထားပါသည်
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoveModalOpen(false);
+                    setSelectedStudentIds([]);
+                  }}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+                >
+                  မလုပ်တော့ပါ (Cancel)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMoveStudents}
+                  disabled={moving || !targetClassId || selectedStudentIds.length === 0}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold text-white shadow transition flex items-center gap-1.5"
+                >
+                  {moving && (
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  )}
+                  အတန်းပြောင်းရွှေ့မည် ({selectedStudentIds.length} ဦး)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Class Section Modal */}
       {modalOpen && (

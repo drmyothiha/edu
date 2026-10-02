@@ -144,4 +144,12 @@ UPDATE users
 SET password_hash = $2
 WHERE id = $1;
 
+-- name: GetUserByPhone :one
+SELECT id, email, password_hash, full_name, role, school_id, created_at
+FROM users
+WHERE phone IS NOT NULL
+  AND phone != ''
+  AND (phone = $1 OR regexp_replace(phone, '[^0-9]', '', 'g') = $2)
+LIMIT 1;
+
 

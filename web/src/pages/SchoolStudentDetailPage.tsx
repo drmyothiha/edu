@@ -9,6 +9,7 @@ import {
   StudentOverviewResponse,
 } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import { QRCodeImage } from '../components/QRCodeImage';
 import { WholeChildMatrix } from '../components/WholeChildMatrix';
 import { ChatModal } from '../components/ChatModal';
@@ -66,6 +67,7 @@ export const SchoolStudentDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   const basePath = location.pathname.startsWith('/admin') ? '/admin' : '/school-admin';
 
   const [student, setStudent] = useState<StudentDetailDTO | null>(null);
@@ -147,7 +149,15 @@ export const SchoolStudentDetailPage: React.FC = () => {
   // Handle Delete Student
   const handleDeleteStudent = async () => {
     if (!student) return;
-    if (!window.confirm(`ကျောင်းသား "${student.full_name}" အား စာရင်းမှ လုံးဝ ပယ်ဖျက်ရန် သေချာပါသလား?`)) {
+    const isConfirmed = await confirm({
+      title: 'ကျောင်းသား ပယ်ဖျက်ရန် (Delete Student Record)',
+      message: `ကျောင်းသား "${student.full_name}" အား စာရင်းမှ လုံးဝ ပယ်ဖျက်ရန် သေချာပါသလား?`,
+      confirmText: 'ပယ်ဖျက်မည် (Delete)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'danger',
+      cautionText: 'ဤကျောင်းသား၏ မှတ်တမ်းများအားလုံး အပြီးပိုင် ပယ်ဖျက်သွားပါမည်။ (All records for this student will be permanently deleted.)',
+    });
+    if (!isConfirmed) {
       return;
     }
 

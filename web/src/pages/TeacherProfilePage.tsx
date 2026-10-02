@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
-import { SchoolDTO } from '../types';
+import { SchoolDTO, ClassDTO } from '../types';
 import {
   Camera,
   Upload,
@@ -20,13 +21,20 @@ import {
   EyeOff,
   Copy,
   Check,
-  Sparkles,
   MapPin,
   Calendar,
+  BookOpen,
+  GraduationCap,
+  CalendarCheck,
+  ClipboardList,
+  FileSpreadsheet,
+  ArrowRight,
+  Sparkles,
+  School,
 } from 'lucide-react';
 
-export const SchoolAdminProfilePage: React.FC = () => {
-  const { user, updateUser, refreshUser } = useAuth();
+export const TeacherProfilePage: React.FC = () => {
+  const { user, updateUser } = useAuth();
 
   // Profile Form States
   const [fullName, setFullName] = useState(user?.full_name || '');
@@ -39,6 +47,10 @@ export const SchoolAdminProfilePage: React.FC = () => {
   // School data state
   const [school, setSchool] = useState<SchoolDTO | null>(null);
   const [loadingSchool, setLoadingSchool] = useState(false);
+
+  // Assigned Classes state
+  const [assignedClasses, setAssignedClasses] = useState<ClassDTO[]>([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
 
   // Password Change States
   const [showPasswordSection, setShowPasswordSection] = useState(false);
@@ -56,6 +68,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [copiedDid, setCopiedDid] = useState(false);
+  const [copiedStaffId, setCopiedStaffId] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +97,22 @@ export const SchoolAdminProfilePage: React.FC = () => {
     }
   }, [user?.school_id]);
 
+  // Load assigned classes for the teacher
+  useEffect(() => {
+    if (user?.id) {
+      setLoadingClasses(true);
+      api.classes
+        .list(user?.school_id || undefined, user.id)
+        .then((classList) => {
+          // If list includes all or needs filter by teacher_id
+          const myClasses = classList.filter((c) => !c.teacher_id || c.teacher_id === user.id);
+          setAssignedClasses(myClasses.length > 0 ? myClasses : classList);
+        })
+        .catch((err) => console.warn('Could not load teacher classes:', err))
+        .finally(() => setLoadingClasses(false));
+    }
+  }, [user?.id, user?.school_id]);
+
   // Compress and crop image to square 512x512 JPEG Data URL
   const processImageFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -103,10 +132,10 @@ export const SchoolAdminProfilePage: React.FC = () => {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const maxSize = 512;
-        let width = img.width;
-        let height = img.height;
+        const width = img.width;
+        const height = img.height;
 
-        // Calculate center crop square
+        // Center crop square calculation
         const minDim = Math.min(width, height);
         const startX = (width - minDim) / 2;
         const startY = (height - minDim) / 2;
@@ -198,11 +227,11 @@ export const SchoolAdminProfilePage: React.FC = () => {
       const updatedUser = await api.auth.updateProfile(payload);
       updateUser(updatedUser);
       setInitialAvatarUrl(avatarUrl);
-      setSuccessMessage('ပရိုဖိုင် အချက်အလက်များနှင့် ဓာတ်ပုံကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ! (Profile updated successfully)');
+      setSuccessMessage('ဆရာ/ဆရာမ ပရိုဖိုင် အချက်အလက်များနှင့် ဓာတ်ပုံကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ! (Teacher profile updated successfully)');
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err: any) {
-      console.error('Failed to update profile:', err);
-      // Fallback: if server endpoint fails or is updating, update local state
+      console.error('Failed to update teacher profile:', err);
+      // Fallback: update local state in AuthContext
       updateUser({
         full_name: fullName.trim(),
         email: email.trim(),
@@ -256,10 +285,15 @@ export const SchoolAdminProfilePage: React.FC = () => {
     }
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, type: 'did' | 'staffId') => {
     navigator.clipboard.writeText(text);
-    setCopiedDid(true);
-    setTimeout(() => setCopiedDid(false), 2000);
+    if (type === 'did') {
+      setCopiedDid(true);
+      setTimeout(() => setCopiedDid(false), 2000);
+    } else {
+      setCopiedStaffId(true);
+      setTimeout(() => setCopiedStaffId(false), 2000);
+    }
   };
 
   const hasUnsavedChanges =
@@ -269,7 +303,8 @@ export const SchoolAdminProfilePage: React.FC = () => {
     bio !== (user?.bio || '') ||
     avatarUrl !== initialAvatarUrl;
 
-  const userInitial = fullName ? fullName.charAt(0).toUpperCase() : 'A';
+  const userInitial = fullName ? fullName.charAt(0).toUpperCase() : 'T';
+  const teacherDid = user?.did || (user?.id ? `did:edu:teacher:${user.id}` : 'did:edu:teacher');
 
   return (
     <div className="flex-1 p-4 md:p-8 max-w-5xl mx-auto space-y-6">
@@ -277,23 +312,26 @@ export const SchoolAdminProfilePage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs text-indigo-600 font-semibold mb-1">
-            <span>ကျောင်းစီမံခန့်ခွဲမှု</span>
+            <Link to="/teacher" className="hover:underline">
+              ဆရာ/ဆရာမ စနစ် (Teacher Portal)
+            </Link>
             <span>•</span>
-            <span className="text-slate-500">မိမိပရိုဖိုင် ပြင်ဆင်ရန်</span>
+            <span className="text-slate-500">မိမိပရိုဖိုင် (My Profile)</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
-            <span>ပရိုဖိုင်နှင့် ဓာတ်ပုံ ပြင်ဆင်ခြင်း</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-800 border border-indigo-200">
-              Admin Profile
+            <span>ဆရာ/ဆရာမ ပရိုဖိုင်နှင့် အချက်အလက် ပြင်ဆင်ခြင်း</span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              Teacher Profile
             </span>
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            ကျောင်းအုပ်ကြီး/စီမံခန့်ခွဲသူ၏ ကိုယ်ရေးအချက်အလက်၊ ဆက်သွယ်ရန်နှင့် ပရိုဖိုင်ဓာတ်ပုံကို ပြင်ဆင်နိုင်ပါသည်။
+            ဆရာ/ဆရာမ၏ ကိုယ်ရေးအချက်အလက်၊ သင်ကြားရေးဘာသာရပ်၊ ဆက်သွယ်ရန်နှင့် ပရိုဖိုင်ဓာတ်ပုံကို ပြင်ဆင်နိုင်ပါသည်။
           </p>
         </div>
 
         {hasUnsavedChanges && (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-1.5 rounded-lg">
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-1.5 rounded-lg shrink-0">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span>သိမ်းဆည်းမထားသော အပြောင်းအလဲများ ရှိနေပါသည်</span>
           </div>
@@ -326,7 +364,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
                 <span>ပရိုဖိုင် ဓာတ်ပုံ (Profile Photo)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                ကျောင်းသားများ၊ ဆရာများနှင့် ကျောင်းကတ်ပြားများတွင် ဖော်ပြမည့် မျက်နှာပြင်ဓာတ်ပုံ
+                ကျောင်းသားများ၊ မိဘများနှင့် သင်ကြားရေး အစီရင်ခံစာများတွင် ဖော်ပြမည့် ပရိုဖိုင်ဓာတ်ပုံ
               </p>
             </div>
           </div>
@@ -338,13 +376,13 @@ export const SchoolAdminProfilePage: React.FC = () => {
                 {avatarUrl ? (
                   <img
                     src={avatarUrl}
-                    alt={fullName || 'Admin'}
+                    alt={fullName || 'Teacher'}
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex flex-col items-center justify-center">
+                  <div className="w-full h-full bg-gradient-to-tr from-indigo-600 via-indigo-700 to-purple-800 text-white flex flex-col items-center justify-center">
                     <span className="text-4xl md:text-5xl font-black tracking-wider">{userInitial}</span>
-                    <span className="text-[10px] font-semibold text-indigo-200 uppercase tracking-wider mt-1">Admin</span>
+                    <span className="text-[10px] font-semibold text-indigo-200 uppercase tracking-wider mt-1">Teacher</span>
                   </div>
                 )}
               </div>
@@ -389,7 +427,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
                   ဓာတ်ပုံ ရွေးချယ်ရန် ဤနေရာကို နှိပ်ပါ သို့မဟုတ် ဆွဲထည့်ပါ
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  JPG, PNG သို့မဟုတ် WebP (အလိုအလျောက် အလယ်ဗဟို စတုရန်းပုံ ချုံ့ပေးပါမည်)
+                  JPG, PNG သို့မဟုတ် WebP (အလိုအလျောက် 512x512 အလယ်ဗဟို စတုရန်းပုံ ချုံ့ပေးပါမည်)
                 </p>
               </div>
 
@@ -425,10 +463,10 @@ export const SchoolAdminProfilePage: React.FC = () => {
             <div>
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <User className="h-5 w-5 text-indigo-600" />
-                <span>ကိုယ်ရေးနှင့် ဆက်သွယ်ရန် အချက်အလက် (Personal & Contact)</span>
+                <span>ကိုယ်ရေးနှင့် သင်ကြားရေး တာဝန် (Personal & Teaching Info)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                စီမံခန့်ခွဲသူ အကောင့်အချက်အလက်များနှင့် တရားဝင် ဆက်သွယ်ရန် ဖုန်းနံပါတ်
+                ဆရာ/ဆရာမ၏ တရားဝင် အမည်၊ အီးမေးလ်၊ ဖုန်းနှင့် သင်ကြားရေး ရာထူး/ဘာသာရပ်
               </p>
             </div>
           </div>
@@ -448,7 +486,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="ဥပမာ - ဦးဘိုဘိုကျော် (ကျောင်းအုပ်ကြီး)"
+                  placeholder="ဥပမာ - ဒေါ်သီတာ (အထက်တန်းပြ)"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 />
               </div>
@@ -457,18 +495,18 @@ export const SchoolAdminProfilePage: React.FC = () => {
             {/* Email Address */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                အီးမေးလ် လိပ်စာ (Email Address) <span className="text-rose-500">*</span>
+                အီးမေးလ် လိပ်စာ (Email Address / Login ID) <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <Mail className="h-4 w-4" />
                 </div>
                 <input
-                  type="email"
+                  type="text"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@school.edu.local"
+                  placeholder="teacher@school.edu.local သို့မဟုတ် 0911111"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white font-mono"
                 />
               </div>
@@ -487,7 +525,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="09111111111 သို့မဟုတ် 0948800"
+                  placeholder="09111111111"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white font-mono"
                 />
               </div>
@@ -496,75 +534,86 @@ export const SchoolAdminProfilePage: React.FC = () => {
               </p>
             </div>
 
-            {/* Role & Position */}
+            {/* Role & Subject Designation */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                ရာထူး / တာဝန်အဆင့် (Role & Designation)
+                ရာထူး / အထူးပြု သင်ကြားသည့် ဘာသာရပ် (Specialization & Designation)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Shield className="h-4 w-4" />
+                  <BookOpen className="h-4 w-4" />
                 </div>
                 <input
                   type="text"
-                  value={bio || 'ကျောင်းအုပ်ဆရာကြီး / စီမံခန့်ခွဲရေးမှူး (School Principal)'}
+                  value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  placeholder="ကျောင်းအုပ်ဆရာကြီး"
+                  placeholder="ဥပမာ - အထက်တန်းပြ ဆရာမ (Senior Assistant Teacher - SAT) / သင်္ချာ"
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 />
               </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                သင်ကြားရေး တာဝန်နှင့် အဓိက သင်ကြားသည့် ဘာသာရပ်
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Assigned School Facility Card */}
+        {/* Assigned School Facility & Teacher Identification Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Building className="h-5 w-5 text-indigo-600" />
-                <span>တာဝန်ကျ ကျောင်းအချက်အလက် (Assigned Facility)</span>
+                <span>တာဝန်ကျ ကျောင်းနှင့် ဆရာမှတ်ပုံတင် (Facility & Credentials)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                ပညာရေးဝန်ကြီးဌာန MIMU မှတ်ပုံတင် စနစ်နှင့် ချိတ်ဆက်ထားသော ကျောင်း
+                ပညာရေးဝန်ကြီးဌာန (MoE) မှတ်ပုံတင် စနစ်နှင့် ချိတ်ဆက်ထားသော ဆရာ/ဆရာမ အထောက်အထား
               </p>
             </div>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Verified Facility
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+              <Shield className="h-3 w-3" />
+              Verified Educator
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* School Name */}
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">ကျောင်းအမည်</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block flex items-center gap-1">
+                <School className="h-3 w-3" /> တာဝန်ကျ ကျောင်း
+              </span>
               <p className="text-sm font-extrabold text-slate-900">
-                {school?.name_my || school?.name || 'အမှတ် (၁) အခြေခံပညာ အထက်တန်းကျောင်း (အင်းတိုင်)'}
+                {school?.name_my || school?.name || user?.school_name || 'အမှတ် (၁) အခြေခံပညာ အထက်တန်းကျောင်း (အင်းတိုင်)'}
               </p>
-              {school?.name_en && (
-                <p className="text-xs text-slate-500 font-sans">{school.name_en}</p>
+              {(school?.name_en || school?.township_name) && (
+                <p className="text-xs text-slate-500 font-sans">
+                  {school?.name_en || ''} {school?.township_name ? `• ${school.township_name}` : ''}
+                </p>
               )}
             </div>
 
+            {/* School Code & Location */}
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">ကျောင်းကုဒ် / P-Code</span>
               <p className="text-sm font-mono font-bold text-indigo-700">
-                {school?.code || 'MMR013035-BEHS01'}
+                {school?.code || user?.school_code || 'MMR013035-BEHS01'}
               </p>
               <p className="text-xs text-slate-500 flex items-center gap-1">
                 <MapPin className="h-3 w-3 text-slate-400" />
-                <span>{school?.township_name || 'Hlegu'} / {school?.region || 'Yangon'}</span>
+                <span>{school?.township_name || user?.township || 'Hlegu'} / {school?.region || user?.region || 'Yangon'}</span>
               </p>
             </div>
 
+            {/* Teacher DID */}
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">အကောင့်လုံခြုံရေး / DID</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">ဆရာ အကောင့်လုံခြုံရေး / DID</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-mono text-slate-700 truncate max-w-[170px]" title={user?.id}>
-                  did:edu:school_admin:{user?.id?.slice(0, 8)}...
+                <span className="text-xs font-mono text-slate-700 truncate max-w-[170px]" title={teacherDid}>
+                  {teacherDid.length > 25 ? `${teacherDid.slice(0, 24)}...` : teacherDid}
                 </span>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(user?.id ? `did:edu:admin:${user.id}` : 'did:edu:admin')}
+                  onClick={() => copyToClipboard(teacherDid, 'did')}
                   className="p-1 rounded hover:bg-slate-200 text-slate-500"
                   title="Copy DID"
                 >
@@ -576,6 +625,97 @@ export const SchoolAdminProfilePage: React.FC = () => {
           </div>
         </div>
 
+        {/* Assigned Classes & Teaching Sections Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <GraduationCap className="h-5 w-5 text-indigo-600" />
+                <span>တာဝန်ကျ အတန်းများနှင့် သင်ကြားရေး (Assigned Classes)</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                ဆရာ/ဆရာမ တာဝန်ယူ သင်ကြားရသော အတန်းများ၊ အချိန်ဇယားနှင့် ကျောင်းသား အမှတ်စာရင်း
+              </p>
+            </div>
+            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
+              {assignedClasses.length} {assignedClasses.length === 1 ? 'Class' : 'Classes'}
+            </span>
+          </div>
+
+          {loadingClasses ? (
+            <div className="p-8 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+              <div className="h-5 w-5 border-2 border-indigo-600 border-t-transparent animate-spin rounded-full" />
+              <span>အတန်း အချက်အလက်များ ရယူနေပါသည်...</span>
+            </div>
+          ) : assignedClasses.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {assignedClasses.map((cls) => (
+                <div
+                  key={cls.id}
+                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-indigo-50/30 transition space-y-3"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-extrabold text-slate-900 text-base">{cls.name}</h3>
+                      <p className="text-xs text-slate-500">
+                        အဆင့်: <span className="font-semibold text-slate-700">{cls.grade_level}</span> • ပညာသင်နှစ်:{' '}
+                        <span className="font-semibold text-slate-700">{cls.academic_year || '2026-2027'}</span>
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase">
+                      {cls.grade_level}
+                    </span>
+                  </div>
+
+                  {/* Fast Action Shortcuts */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1">
+                    <Link
+                      to={`/teacher/classes/${cls.id}/timetable`}
+                      className="px-2 py-1.5 bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                      title="အချိန်ဇယား"
+                    >
+                      <Calendar className="h-3 w-3" />
+                      <span>Timetable</span>
+                    </Link>
+                    <Link
+                      to={`/teacher/classes/${cls.id}/attendance`}
+                      className="px-2 py-1.5 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                      title="ကျောင်းခေါ်ချိန် စစ်ဆေးရန်"
+                    >
+                      <CalendarCheck className="h-3 w-3" />
+                      <span>Attendance</span>
+                    </Link>
+                    <Link
+                      to={`/teacher/classes/${cls.id}/exam-marks`}
+                      className="px-2 py-1.5 bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-700 border border-slate-200 rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                      title="စာမေးပွဲ အမှတ်စာရင်း"
+                    >
+                      <FileSpreadsheet className="h-3 w-3" />
+                      <span>Marks</span>
+                    </Link>
+                    <Link
+                      to={`/teacher/classes/${cls.id}/assignments`}
+                      className="px-2 py-1.5 bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200 rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                      title="အိမ်စာနှင့် တာဝန်များ"
+                    >
+                      <ClipboardList className="h-3 w-3" />
+                      <span>Tasks</span>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2">
+              <GraduationCap className="h-8 w-8 text-slate-400 mx-auto" />
+              <h3 className="font-bold text-slate-700 text-sm">လောလောဆယ် တာဝန်ကျ အတန်းများ မရှိသေးပါ</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                ကျောင်းအုပ်ကြီး သို့မဟုတ် စီမံခန့်ခွဲသူမှ သင်ကြားမည့် အတန်းများကို သတ်မှတ်ပေးပြီးပါက ဤနေရာတွင် အလိုအလျောက် ပေါ်လာမည် ဖြစ်ပါသည်။
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Security & Password Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -585,7 +725,7 @@ export const SchoolAdminProfilePage: React.FC = () => {
                 <span>လုံခြုံရေးနှင့် စကားဝှက် (Security & Password)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                အကောင့်ဝင်ရောက်ရန် စကားဝှက် ပြောင်းလဲခြင်း
+                ဆရာ/ဆရာမ အကောင့်ဝင်ရောက်ရန် စကားဝှက် ပြောင်းလဲခြင်း
               </p>
             </div>
             <button
@@ -722,4 +862,4 @@ export const SchoolAdminProfilePage: React.FC = () => {
   );
 };
 
-export default SchoolAdminProfilePage;
+export default TeacherProfilePage;

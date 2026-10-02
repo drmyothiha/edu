@@ -4,11 +4,19 @@ import { api } from '../api/client';
 import {
   ClassDTO,
   ExamRosterItem,
+  ExamRosterResponse,
   ExamSummaryInfo,
   BatchExamMarksRequest,
   WholeChildProfileDTO,
   SchoolDTO,
+  StudentDTO,
 } from '../types';
+import {
+  getCachedExamMarks,
+  saveExamMarksToCache,
+  getCachedClassroom,
+} from '../services/classroomOfflineStorage';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import {
   ArrowLeft,
   Save,
@@ -38,6 +46,7 @@ import {
   Printer,
 } from 'lucide-react';
 import { MassReportCardPrintModal, ReportCardStudentItem } from '../components/MassReportCardPrintModal';
+import { KGDevelopmentTracker } from '../components/KGDevelopmentTracker';
 
 // Domain tabs in Google Sheets style
 export type WholeChildDomainTab = 'academic' | 'physical' | 'health' | 'wellbeing' | 'social';
@@ -171,6 +180,9 @@ export const ClassExamMarksPage: React.FC = () => {
   // Active Sheet Domain Tab
   const [activeDomainTab, setActiveDomainTab] = useState<WholeChildDomainTab>('academic');
 
+  // Confirmation dialog
+  const { confirm } = useConfirm();
+
   // Evaluation Period
   const [selectedPeriod, setSelectedPeriod] = useState<string>('2026-10');
 
@@ -219,113 +231,156 @@ export const ClassExamMarksPage: React.FC = () => {
     }
   };
 
-  // Fetch Class details, Exam Roster & Whole-Child Profiles
-  const fetchRosterData = async (examName: string, period = selectedPeriod) => {
-    if (!classId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [cls, rosterRes, wcProfiles] = await Promise.all([
-        api.classes.get(classId),
-        api.classes.getExamMarks(classId, examName),
-        api.classes.getWholeChildProfiles(classId, period).catch(() => []),
-      ]);
-
+  // Helper to apply exam and Whole-Child profile data to state
+  const applyExamAndProfileData = (cls: ClassDTO | null, rosterRes: any, wcProfiles: any[]) => {
+    if (cls) {
       setClassInfo(cls);
-      setAvailableExams(rosterRes.available_exams || []);
-      setSelectedExam(rosterRes.exam_name || examName);
-
-      if (cls && cls.school_id) {
+      if (cls.school_id) {
         api.schools.get(cls.school_id).then(setSchoolInfo).catch(() => {});
       }
+    }
+    setAvailableExams(rosterRes.available_exams || []);
+    setSelectedExam(rosterRes.exam_name || selectedExam);
 
-      // Map roster items to state rows
-      const initialRows: StudentRowState[] = (rosterRes.roster || []).map((st: ExamRosterItem) => {
-        const marksObj: Record<SubjectKey, string> = {
-          myanmar: st.myanmar !== null && st.myanmar !== undefined ? String(st.myanmar) : '',
-          english: st.english !== null && st.english !== undefined ? String(st.english) : '',
-          maths: st.maths !== null && st.maths !== undefined ? String(st.maths) : '',
-          phy: st.phy !== null && st.phy !== undefined ? String(st.phy) : '',
-          chem: st.chem !== null && st.chem !== undefined ? String(st.chem) : '',
-          bio: st.bio !== null && st.bio !== undefined ? String(st.bio) : '',
-          geo: st.geo !== null && st.geo !== undefined ? String(st.geo) : '',
-          his: st.his !== null && st.his !== undefined ? String(st.his) : '',
-          eco: st.eco !== null && st.eco !== undefined ? String(st.eco) : '',
-          social: st.social !== null && st.social !== undefined ? String(st.social) : '',
-        };
+    // Map roster items to state rows
+    const initialRows: StudentRowState[] = (rosterRes.roster || []).map((st: ExamRosterItem) => {
+      const marksObj: Record<SubjectKey, string> = {
+        myanmar: st.myanmar !== null && st.myanmar !== undefined ? String(st.myanmar) : '',
+        english: st.english !== null && st.english !== undefined ? String(st.english) : '',
+        maths: st.maths !== null && st.maths !== undefined ? String(st.maths) : '',
+        phy: st.phy !== null && st.phy !== undefined ? String(st.phy) : '',
+        chem: st.chem !== null && st.chem !== undefined ? String(st.chem) : '',
+        bio: st.bio !== null && st.bio !== undefined ? String(st.bio) : '',
+        geo: st.geo !== null && st.geo !== undefined ? String(st.geo) : '',
+        his: st.his !== null && st.his !== undefined ? String(st.his) : '',
+        eco: st.eco !== null && st.eco !== undefined ? String(st.eco) : '',
+        social: st.social !== null && st.social !== undefined ? String(st.social) : '',
+      };
 
-        return {
-          student_id: st.student_id,
-          student_name: st.student_name,
-          student_email: st.student_email,
-          marks: marksObj,
-          remarks: st.remarks || '',
-        };
-      });
+      return {
+        student_id: st.student_id,
+        student_name: st.student_name,
+        student_email: st.student_email,
+        marks: marksObj,
+        remarks: st.remarks || '',
+      };
+    });
 
-      // Populate whole-child maps
-      const pMap = new Map<string, any>();
-      (wcProfiles || []).forEach((p: any) => pMap.set(p.student_id, p));
+    // Populate whole-child maps
+    const pMap = new Map<string, any>();
+    (wcProfiles || []).forEach((p: any) => pMap.set(p.student_id, p));
 
-      const newPhys: Record<string, PhysicalRowState> = {};
-      const newHealth: Record<string, HealthRowState> = {};
-      const newWell: Record<string, WellbeingRowState> = {};
-      const newSocial: Record<string, SocialRowState> = {};
+    const newPhys: Record<string, PhysicalRowState> = {};
+    const newHealth: Record<string, HealthRowState> = {};
+    const newWell: Record<string, WellbeingRowState> = {};
+    const newSocial: Record<string, SocialRowState> = {};
 
-      initialRows.forEach((st) => {
-        const p = pMap.get(st.student_id);
-        const phys = p?.physical_growth_profile;
-        const health = p?.health_visibility_profile;
-        const well = p?.wellbeing_profile;
-        const soc = p?.social_citizenship_profile;
+    initialRows.forEach((st) => {
+      const p = pMap.get(st.student_id);
+      const phys = p?.physical_growth_profile;
+      const health = p?.health_visibility_profile;
+      const well = p?.wellbeing_profile;
+      const soc = p?.social_citizenship_profile;
 
-        newPhys[st.student_id] = {
-          height_cm: phys?.measurements?.height_cm != null ? String(phys.measurements.height_cm) : '108.5',
-          weight_kg: phys?.measurements?.weight_kg != null ? String(phys.measurements.weight_kg) : '18.2',
-          growth_category: phys?.measurements?.growth_percentile_category || 'standard_healthy',
-          motor_skills: phys?.milestones_and_development?.gross_motor_agility || 'age_appropriate',
-          fine_motor_grip: phys?.milestones_and_development?.fine_motor_pencil_grip || 'excellent',
-          milk_program: phys?.school_nutrition_and_vitality?.school_milk_program === 'enrolled',
-          preferred_sports: (phys?.physical_fitness_activity?.preferred_sports || ['Morning Calisthenics', 'Playground Agility']).join(', '),
-        };
+      newPhys[st.student_id] = {
+        height_cm: phys?.measurements?.height_cm != null ? String(phys.measurements.height_cm) : '108.5',
+        weight_kg: phys?.measurements?.weight_kg != null ? String(phys.measurements.weight_kg) : '18.2',
+        growth_category: phys?.measurements?.growth_percentile_category || 'standard_healthy',
+        motor_skills: phys?.milestones_and_development?.gross_motor_agility || 'age_appropriate',
+        fine_motor_grip: phys?.milestones_and_development?.fine_motor_pencil_grip || 'excellent',
+        milk_program: phys?.school_nutrition_and_vitality?.school_milk_program === 'enrolled',
+        preferred_sports: (phys?.physical_fitness_activity?.preferred_sports || ['Morning Calisthenics', 'Playground Agility']).join(', '),
+      };
 
-        newHealth[st.student_id] = {
-          vision_check: health?.routine_screenings?.vision_check || 'normal_20_20',
-          hearing_check: health?.routine_screenings?.hearing_check || 'normal',
-          oral_dental: health?.routine_screenings?.oral_dental_health || 'satisfactory_clean',
-          deworming_done: health?.national_campaign_markers?.annual_deworming_completed ?? true,
-          vitamin_a_done: health?.national_campaign_markers?.vitamin_a_distributed ?? true,
-          known_allergies: (health?.recurring_conditions_and_alerts?.known_allergies || ['None reported'])[0] || 'မရှိပါ',
-          clinic_referral: health?.clinic_referrals?.has_active_referral ? 'active_referral' : 'none',
-        };
+      newHealth[st.student_id] = {
+        vision_check: health?.routine_screenings?.vision_check || 'normal_20_20',
+        hearing_check: health?.routine_screenings?.hearing_check || 'normal',
+        oral_dental: health?.routine_screenings?.oral_dental_health || 'satisfactory_clean',
+        deworming_done: health?.national_campaign_markers?.annual_deworming_completed ?? true,
+        vitamin_a_done: health?.national_campaign_markers?.vitamin_a_distributed ?? true,
+        known_allergies: (health?.recurring_conditions_and_alerts?.known_allergies || ['None reported'])[0] || 'မရှိပါ',
+        clinic_referral: health?.clinic_referrals?.has_active_referral ? 'active_referral' : 'none',
+      };
 
-        newWell[st.student_id] = {
-          engagement_index: well?.monthly_checkin_summary?.classroom_engagement_index != null ? String(well.monthly_checkin_summary.classroom_engagement_index) : '4.8',
-          dominant_mood: well?.monthly_checkin_summary?.dominant_emotional_state || 'joyful_curious',
-          peer_harmony: well?.monthly_checkin_summary?.peer_relational_harmony || 'harmonious',
-          support_workflow: well?.counselor_support_workflow?.support_level || 'none_required',
-          teacher_notes: well?.teacher_observations?.notes || 'တက်ကြွပျော်ရွှင်ပြီး သူငယ်ချင်းများနှင့် သင့်တင့်ပါသည်',
-        };
+      newWell[st.student_id] = {
+        engagement_index: well?.monthly_checkin_summary?.classroom_engagement_index != null ? String(well.monthly_checkin_summary.classroom_engagement_index) : '4.8',
+        dominant_mood: well?.monthly_checkin_summary?.dominant_emotional_state || 'joyful_curious',
+        peer_harmony: well?.monthly_checkin_summary?.peer_relational_harmony || 'harmonious',
+        support_workflow: well?.counselor_support_workflow?.support_level || 'none_required',
+        teacher_notes: well?.teacher_observations?.notes || 'တက်ကြွပျော်ရွှင်ပြီး သူငယ်ချင်းများနှင့် သင့်တင့်ပါသည်',
+      };
 
-        newSocial[st.student_id] = {
-          leadership_role: soc?.leadership_and_roles?.[0]?.role || 'Line Leader (Morning Assembly)',
-          club_name: soc?.clubs_and_extracurriculars?.[0]?.club_name || 'Kindergarten Art & Music Circle',
-          volunteering_count: String(soc?.community_and_service?.volunteering_events_count || 3),
-          citizenship_badge: soc?.teamwork_and_peer_conduct?.citizenship_badges_awarded?.[0] || 'အချိန်တိကျမှုဆု',
-          collaboration_rating: String(soc?.teamwork_and_peer_conduct?.collaboration_rating || 5.0),
-        };
-      });
+      newSocial[st.student_id] = {
+        leadership_role: soc?.leadership_and_roles?.[0]?.role || 'Line Leader (Morning Assembly)',
+        club_name: soc?.clubs_and_extracurriculars?.[0]?.club_name || 'Kindergarten Art & Music Circle',
+        volunteering_count: String(soc?.community_and_service?.volunteering_events_count || 3),
+        citizenship_badge: soc?.teamwork_and_peer_conduct?.citizenship_badges_awarded?.[0] || 'အချိန်တိကျမှုဆု',
+        collaboration_rating: String(soc?.teamwork_and_peer_conduct?.collaboration_rating || 5.0),
+      };
+    });
 
-      setRows(initialRows);
-      setWcPhysical(newPhys);
-      setWcHealth(newHealth);
-      setWcWellbeing(newWell);
-      setWcSocial(newSocial);
-      setIsDirty(false);
-    } catch (err: any) {
-      setError(err.message || 'စာမေးပွဲ အမှတ်စာရင်း ရယူရာတွင် အမှားဖြစ်ပေါ်ပါသည်');
-    } finally {
-      setLoading(false);
+    setRows(initialRows);
+    setWcPhysical(newPhys);
+    setWcHealth(newHealth);
+    setWcWellbeing(newWell);
+    setWcSocial(newSocial);
+    setIsDirty(false);
+  };
+
+  // Fetch Class details, Exam Roster & Whole-Child Profiles (Offline-First SWR)
+  const fetchRosterData = async (examName: string, period = selectedPeriod) => {
+    if (!classId) return;
+    setError(null);
+    let hadCache = false;
+
+    // Step 1: Immediate 0ms cache read from IndexedDB
+    try {
+      const [cachedCls, cachedExam] = await Promise.all([
+        getCachedClassroom(classId),
+        getCachedExamMarks(classId, examName),
+      ]);
+
+      if (cachedExam && cachedExam.roster && cachedExam.roster.roster && cachedExam.roster.roster.length > 0) {
+        hadCache = true;
+        applyExamAndProfileData(cachedCls?.classInfo || null, cachedExam.roster, cachedExam.wcProfiles || []);
+        setLoading(false);
+      } else if (cachedCls?.classInfo) {
+        setClassInfo(cachedCls.classInfo);
+      }
+    } catch (cacheErr) {
+      console.warn('[ExamMarks] IndexedDB cache read fallback:', cacheErr);
+    }
+
+    if (!hadCache) {
+      setLoading(true);
+    }
+
+    // Step 2: Delayed server check (1.2s delay if cached, immediate if no cache)
+    const runServerCheck = async () => {
+      try {
+        const [cls, rosterRes, wcProfiles] = await Promise.all([
+          api.classes.get(classId),
+          api.classes.getExamMarks(classId, examName),
+          api.classes.getWholeChildProfiles(classId, period).catch(() => []),
+        ]);
+
+        applyExamAndProfileData(cls, rosterRes, wcProfiles);
+
+        // Save fresh data to IndexedDB
+        await saveExamMarksToCache(classId, examName, rosterRes, wcProfiles);
+      } catch (err: any) {
+        if (!hadCache) {
+          setError(err.message || 'စာမေးပွဲ အမှတ်စာရင်း ရယူရာတွင် အမှားဖြစ်ပေါ်ပါသည်');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (hadCache) {
+      setTimeout(runServerCheck, 1200);
+    } else {
+      runServerCheck();
     }
   };
 
@@ -334,9 +389,16 @@ export const ClassExamMarksPage: React.FC = () => {
   }, [classId, selectedPeriod]);
 
   // Handle Exam selection change
-  const handleSelectExam = (name: string) => {
+  const handleSelectExam = async (name: string) => {
     if (isDirty) {
-      if (!window.confirm('သိမ်းဆည်းခြင်းမပြုရသေးသော အချက်အလက်များ ရှိနေပါသည်။ အခြားစာမေးပွဲသို့ ပြောင်းလဲရန် သေချာပါသလား?')) {
+      const isConfirmed = await confirm({
+        title: 'သိမ်းဆည်းမထားသော အချက်အလက်များ (Unsaved Changes)',
+        message: 'သိမ်းဆည်းခြင်းမပြုရသေးသော အချက်အလက်များ ရှိနေပါသည်။ အခြားစာမေးပွဲသို့ ပြောင်းလဲရန် သေချာပါသလား?',
+        confirmText: 'ပြောင်းလဲမည် (Switch)',
+        cancelText: 'မလုပ်တော့ပါ (Cancel)',
+        variant: 'warning',
+      });
+      if (!isConfirmed) {
         return;
       }
     }
@@ -640,6 +702,36 @@ export const ClassExamMarksPage: React.FC = () => {
       }
 
       await Promise.all(batchPromises);
+
+      // Save directly to IndexedDB cache immediately
+      const updatedRosterRes: ExamRosterResponse = {
+        class_id: classId,
+        class_name: classInfo?.name || '',
+        grade_level: classInfo?.grade_level || 'KG',
+        exam_name: selectedExam,
+        academic_year: classInfo?.academic_year || '2026-2027',
+        available_exams: availableExams,
+        total_students: rows.length,
+        roster: rows.map((r) => ({
+          student_id: r.student_id,
+          student_name: r.student_name,
+          student_email: r.student_email,
+          exam_name: selectedExam,
+          academic_year: classInfo?.academic_year || '2026-2027',
+          myanmar: r.marks.myanmar ? parseFloat(r.marks.myanmar) : null,
+          english: r.marks.english ? parseFloat(r.marks.english) : null,
+          maths: r.marks.maths ? parseFloat(r.marks.maths) : null,
+          phy: r.marks.phy ? parseFloat(r.marks.phy) : null,
+          chem: r.marks.chem ? parseFloat(r.marks.chem) : null,
+          bio: r.marks.bio ? parseFloat(r.marks.bio) : null,
+          geo: r.marks.geo ? parseFloat(r.marks.geo) : null,
+          his: r.marks.his ? parseFloat(r.marks.his) : null,
+          eco: r.marks.eco ? parseFloat(r.marks.eco) : null,
+          social: r.marks.social ? parseFloat(r.marks.social) : null,
+          remarks: r.remarks,
+        })),
+      };
+      await saveExamMarksToCache(classId, selectedExam, updatedRosterRes, wcProfilesPayload);
 
       setIsDirty(false);
       setSuccessMsg(
@@ -979,18 +1071,58 @@ export const ClassExamMarksPage: React.FC = () => {
     });
   }, [rows, wcPhysical, wcHealth, wcWellbeing, wcSocial]);
 
+  // Check if current class is KG (Kindergarten)
+  const isKG = useMemo(() => {
+    const code = (classInfo?.code || classId || '').toUpperCase();
+    const name = (classInfo?.name || '').toUpperCase();
+    const grade = (classInfo?.grade_level || '').toUpperCase();
+    return (
+      grade === 'KG' ||
+      code.startsWith('KG') ||
+      name.startsWith('KG') ||
+      code === 'KGA' ||
+      code === 'KGB' ||
+      classId?.toUpperCase().startsWith('KG')
+    );
+  }, [classInfo, classId]);
+
+  const kgStudents: StudentDTO[] = useMemo(() => {
+    return rows.map((r) => ({
+      id: r.student_id,
+      full_name: r.student_name,
+      email: r.student_email,
+      role: 'student',
+      enrolled_at: new Date().toISOString(),
+    }));
+  }, [rows]);
+
+  if (isKG) {
+    return (
+      <div className="p-4 md:p-6 max-w-[1650px] mx-auto w-full space-y-4 font-sans">
+        <KGDevelopmentTracker
+          classInfo={classInfo}
+          schoolInfo={schoolInfo}
+          students={kgStudents}
+          classSlug={classId || 'KGA'}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-[1650px] mx-auto w-full space-y-4 font-sans">
       {/* Top Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex items-center gap-3">
-          <Link
-            to={backUrl}
-            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition shadow-xs flex-shrink-0"
-            title="နောက်သို့ ပြန်သွားရန်"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
+          {!location.pathname.includes('/classes/') && (
+            <Link
+              to={backUrl}
+              className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition shadow-xs flex-shrink-0"
+              title="နောက်သို့ ပြန်သွားရန်"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          )}
 
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1176,9 +1308,19 @@ export const ClassExamMarksPage: React.FC = () => {
             </span>
             <select
               value={selectedPeriod}
-              onChange={(e) => {
-                if (isDirty && !window.confirm('သိမ်းဆည်းခြင်းမပြုရသေးသော အချက်အလက်များ ရှိနေပါသည်။ ကာလပြောင်းလဲရန် သေချာပါသလား?')) return;
-                setSelectedPeriod(e.target.value);
+              onChange={async (e) => {
+                const nextVal = e.target.value;
+                if (isDirty) {
+                  const isConfirmed = await confirm({
+                    title: 'သိမ်းဆည်းမထားသော အချက်အလက်များ (Unsaved Changes)',
+                    message: 'သိမ်းဆည်းခြင်းမပြုရသေးသော အချက်အလက်များ ရှိနေပါသည်။ ကာလပြောင်းလဲရန် သေချာပါသလား?',
+                    confirmText: 'ပြောင်းလဲမည် (Switch)',
+                    cancelText: 'မလုပ်တော့ပါ (Cancel)',
+                    variant: 'warning',
+                  });
+                  if (!isConfirmed) return;
+                }
+                setSelectedPeriod(nextVal);
               }}
               className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 text-indigo-900 text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
             >

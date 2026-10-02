@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../api/client';
 import { SchoolDTO, FacultyMemberDTO, CreateTeacherRequest, UpdateTeacherRequest } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import {
   Building,
   Users,
@@ -27,6 +28,7 @@ import { SchoolSwitcherModal } from '../components/SchoolSwitcherModal';
 
 export const SchoolTeachersPage: React.FC = () => {
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlSchoolId = searchParams.get('school_id');
 
@@ -178,7 +180,15 @@ export const SchoolTeachersPage: React.FC = () => {
 
   // Handle Delete Teacher
   const handleDeleteTeacher = async (teacher: FacultyMemberDTO) => {
-    if (!window.confirm(`ဆရာ/ဆရာမ "${teacher.full_name}" အား စာရင်းမှ ပယ်ဖျက်ရန် သေချာပါသလား?`)) {
+    const isConfirmed = await confirm({
+      title: 'ဆရာ/ဆရာမ ပယ်ဖျက်ရန် (Delete Faculty Member)',
+      message: `ဆရာ/ဆရာမ "${teacher.full_name}" အား စာရင်းမှ ပယ်ဖျက်ရန် သေချာပါသလား?`,
+      confirmText: 'ပယ်ဖျက်မည် (Delete)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'danger',
+      cautionText: 'ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ (This action cannot be undone)',
+    });
+    if (!isConfirmed) {
       return;
     }
 

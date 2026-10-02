@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Configuration
-CLOUD_SSH_HOST="mth@34.21.230.33"
+CLOUD_SSH_HOST="mth@136.85.95.216"
 CLOUD_DIR="/home/mth/edu/"
 LOCAL_DIR="/Users/drmyothiha/Documents/edu/edu/"
 MAC_USER="drmyothiha"
@@ -46,6 +46,6 @@ else
   else
     echo "⚠️  Reverse SSH tunnel (port 2222) is not active in this session."
     echo "💡 You can simply run 'make sync' on your Mac terminal anytime,"
-    echo "   or connect from your Mac using: ssh mth@34.21.230.33 (which forwards port 2222)."
+    echo "   or connect from your Mac using: ssh mth@136.85.95.216 (which forwards port 2222)."
   fi
 fi

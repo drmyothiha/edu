@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../api/client';
 import { SchoolDTO, ClassDTO, SchoolStudentDTO, CreateSchoolStudentRequest } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmDialogContext';
 import {
   Building,
   GraduationCap,
@@ -53,6 +54,7 @@ const getGradeStageLabel = (grade: string) => {
 
 export const SchoolStudentsPage: React.FC = () => {
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -160,7 +162,14 @@ export const SchoolStudentsPage: React.FC = () => {
 
   // Handle Seed Sample Students
   const handleSeedSampleStudents = async () => {
-    if (!window.confirm('KG မှ Grade 12 အထိ နမူနာ ကျောင်းသားများ အားလုံးအား အလိုအလျောက် ထည့်သွင်းပေးရန် သေချာပါသလား?')) {
+    const isConfirmed = await confirm({
+      title: 'နမူနာ ကျောင်းသားများ ထည့်သွင်းရန် (Seed Sample Students)',
+      message: 'KG မှ Grade 12 အထိ နမူနာ ကျောင်းသားများ အားလုံးအား အလိုအလျောက် ထည့်သွင်းပေးရန် သေချာပါသလား?',
+      confirmText: 'ထည့်သွင်းမည် (Seed Students)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'info',
+    });
+    if (!isConfirmed) {
       return;
     }
 
@@ -179,7 +188,15 @@ export const SchoolStudentsPage: React.FC = () => {
 
   // Handle Delete Student
   const handleDeleteStudent = async (student: SchoolStudentDTO) => {
-    if (!window.confirm(`ကျောင်းသား "${student.full_name}" အား စာရင်းမှ ပယ်ဖျက်ရန် သေချာပါသလား?`)) {
+    const isConfirmed = await confirm({
+      title: 'ကျောင်းသား ပယ်ဖျက်ရန် (Delete Student)',
+      message: `ကျောင်းသား "${student.full_name}" အား စာရင်းမှ ပယ်ဖျက်ရန် သေချာပါသလား?`,
+      confirmText: 'ပယ်ဖျက်မည် (Delete)',
+      cancelText: 'မလုပ်တော့ပါ (Cancel)',
+      variant: 'danger',
+      cautionText: 'ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ (This action cannot be undone)',
+    });
+    if (!isConfirmed) {
       return;
     }
 

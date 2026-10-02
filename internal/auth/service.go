@@ -101,24 +101,70 @@ func NewService(querier database.Querier, jwtManager *JWTManager) *Service {
 
 // Login verifies credentials and returns JWT
 func (s *Service) Login(ctx context.Context, req LoginRequest) (*AuthResponse, error) {
-	email := strings.TrimSpace(strings.ToLower(req.Email))
-	if email == "" || req.Password == "" {
+	rawIdentifier := strings.TrimSpace(req.Email)
+	if rawIdentifier == "" || req.Password == "" {
 		return nil, errors.New("email and password are required")
 	}
 
-	user, err := s.querier.GetUserByEmail(ctx, email)
-	if err != nil && errors.Is(err, pgx.ErrNoRows) {
-		if !strings.Contains(email, "@") {
-			user, err = s.querier.GetUserByEmail(ctx, email+"@edu.local")
-		} else if strings.HasSuffix(email, "@edu.local") {
-			user, err = s.querier.GetUserByEmail(ctx, strings.TrimSuffix(email, "@edu.local"))
+	emailLower := strings.ToLower(rawIdentifier)
+
+	var user database.GetUserByEmailRow
+	var foundUser bool
+
+	// 1. First attempt: search by email
+	row, err := s.querier.GetUserByEmail(ctx, emailLower)
+	if err == nil {
+		user = row
+		foundUser = true
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		// Suffix matching for email
+		if !strings.Contains(emailLower, "@") {
+			row, err = s.querier.GetUserByEmail(ctx, emailLower+"@edu.local")
+			if err == nil {
+				user = row
+				foundUser = true
+			}
+		} else if strings.HasSuffix(emailLower, "@edu.local") {
+			row, err = s.querier.GetUserByEmail(ctx, strings.TrimSuffix(emailLower, "@edu.local"))
+			if err == nil {
+				user = row
+				foundUser = true
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("failed to query user by email: %w", err)
+	}
+
+	// 2. Second attempt: search by phone number
+	if !foundUser {
+		phoneDigits := extractDigits(rawIdentifier)
+		phoneCandidates := generatePhoneVariants(rawIdentifier, phoneDigits)
+
+		for _, candidate := range phoneCandidates {
+			pRow, pErr := s.querier.GetUserByPhone(ctx, database.GetUserByPhoneParams{
+				Phone:   pgtype.Text{String: candidate, Valid: true},
+				Phone_2: pgtype.Text{String: phoneDigits, Valid: len(phoneDigits) >= 4},
+			})
+			if pErr == nil {
+				user = database.GetUserByEmailRow{
+					ID:           pRow.ID,
+					Email:        pRow.Email,
+					PasswordHash: pRow.PasswordHash,
+					FullName:     pRow.FullName,
+					Role:         pRow.Role,
+					SchoolID:     pRow.SchoolID,
+					CreatedAt:    pRow.CreatedAt,
+				}
+				foundUser = true
+				break
+			} else if !errors.Is(pErr, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("failed to query user by phone: %w", pErr)
+			}
 		}
 	}
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrInvalidPassword
-		}
-		return nil, fmt.Errorf("failed to query user: %w", err)
+
+	if !foundUser {
+		return nil, ErrInvalidPassword
 	}
 
 	if !CheckPasswordHash(req.Password, user.PasswordHash) {
@@ -140,18 +186,72 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (*AuthResponse, e
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
-	return &AuthResponse{
-		Token:     token,
-		ExpiresAt: expiresAt,
-		User: UserDTO{
+	userDTO, err := s.GetUserByID(ctx, user.ID)
+	if err != nil || userDTO == nil {
+		userDTO = &UserDTO{
 			ID:        user.ID,
 			Email:     user.Email,
 			FullName:  user.FullName,
 			Role:      user.Role,
 			SchoolID:  schoolID,
 			CreatedAt: user.CreatedAt.Time,
-		},
+		}
+	}
+
+	return &AuthResponse{
+		Token:     token,
+		ExpiresAt: expiresAt,
+		User:      *userDTO,
 	}, nil
+}
+
+func extractDigits(s string) string {
+	var sb strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func generatePhoneVariants(raw, digits string) []string {
+	seen := make(map[string]bool)
+	var variants []string
+
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v != "" && !seen[v] {
+			seen[v] = true
+			variants = append(variants, v)
+		}
+	}
+
+	add(raw)
+	if digits != "" {
+		add(digits)
+		// Myanmar phone number variations:
+		// e.g. 0948800 -> +95948800, 95948800, 948800
+		if strings.HasPrefix(digits, "09") && len(digits) > 2 {
+			rest := digits[2:]
+			add("9" + rest)
+			add("09" + rest)
+			add("+959" + rest)
+			add("959" + rest)
+		} else if strings.HasPrefix(digits, "959") && len(digits) > 3 {
+			rest := digits[3:]
+			add("09" + rest)
+			add("9" + rest)
+			add("+959" + rest)
+		} else if strings.HasPrefix(digits, "9") && len(digits) >= 6 {
+			rest := digits[1:]
+			add("09" + rest)
+			add("+959" + rest)
+			add("959" + rest)
+		}
+	}
+
+	return variants
 }
 
 // Register creates a new user account and returns an auth token
@@ -331,8 +431,8 @@ func (s *Service) UpdateProfile(ctx context.Context, id uuid.UUID, req UpdatePro
 
 // ChangePassword verifies current password and sets new password hash
 func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, req ChangePasswordRequest) error {
-	if len(req.NewPassword) < 6 {
-		return errors.New("new password must be at least 6 characters long")
+	if len(req.NewPassword) < 3 {
+		return errors.New("new password must be at least 3 characters long")
 	}
 
 	user, err := s.querier.GetUserByID(ctx, id)

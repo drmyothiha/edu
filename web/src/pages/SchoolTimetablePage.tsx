@@ -12,6 +12,10 @@ import {
   ClassTimetableDTO,
 } from '../types';
 import {
+  getCachedTimetable,
+  saveTimetableToCache,
+} from '../services/classroomOfflineStorage';
+import {
   Calendar,
   Clock,
   BookOpen,
@@ -256,7 +260,14 @@ export const SchoolTimetablePage: React.FC = () => {
         }
         setClasses(clsList);
         if (clsList.length > 0) {
-          const match = urlClassId ? clsList.find((c) => c.id === urlClassId) : null;
+          const match = urlClassId
+            ? clsList.find(
+                (c) =>
+                  c.id === urlClassId ||
+                  c.code?.toLowerCase() === urlClassId.toLowerCase() ||
+                  c.name?.toLowerCase().includes(urlClassId.toLowerCase())
+              )
+            : null;
           setSelectedClassId(match ? match.id : (urlClassId || clsList[0].id));
         } else if (urlClassId) {
           setSelectedClassId(urlClassId);
@@ -276,24 +287,59 @@ export const SchoolTimetablePage: React.FC = () => {
     if (!selectedClassId) return;
 
     const loadTimetable = async () => {
+      let hadCache = false;
+
+      // Step 1: Immediate 0ms cache read from IndexedDB
       try {
-        const tt = await api.timetable.getClassTimetable(selectedClassId);
-        setTimetable(tt);
-        if (tt.shift_type) {
-          setClassShifts((prev) => ({ ...prev, [selectedClassId]: tt.shift_type }));
+        const cached = await getCachedTimetable(selectedClassId);
+        if (cached && cached.timetable) {
+          hadCache = true;
+          setTimetable(cached.timetable);
+          if (cached.timetable.shift_type) {
+            setClassShifts((prev) => ({ ...prev, [selectedClassId]: cached.timetable!.shift_type }));
+          }
+          if (cached.shiftConfigs && cached.shiftConfigs.length > 0) {
+            setShiftConfigs(cached.shiftConfigs);
+          }
+          setLoading(false);
         }
-      } catch (_) {
-        // Fallback default sample timetable
-        const activeClass = classes.find((c) => c.id === selectedClassId);
-        const shift = classShifts[selectedClassId] || 'full_day';
-        const defaultTT = generateFallbackTimetable(
-          selectedClassId,
-          activeClass?.name || 'Grade 8 - Section A',
-          activeClass?.grade_level || 'Grade 8',
-          shift,
-          faculty
-        );
-        setTimetable(defaultTT);
+      } catch (cacheErr) {
+        console.warn('[Timetable] IndexedDB read fallback:', cacheErr);
+      }
+
+      // Step 2: Delayed server check (1.2s delay if cached, immediate if no cache)
+      const runServerCheck = async () => {
+        try {
+          const tt = await api.timetable.getClassTimetable(selectedClassId);
+          setTimetable(tt);
+          if (tt.shift_type) {
+            setClassShifts((prev) => ({ ...prev, [selectedClassId]: tt.shift_type }));
+          }
+          await saveTimetableToCache(selectedClassId, tt, shiftConfigs);
+        } catch (_) {
+          if (!hadCache) {
+            // Fallback default sample timetable
+            const activeClass = classes.find((c) => c.id === selectedClassId);
+            const shift = classShifts[selectedClassId] || 'full_day';
+            const defaultTT = generateFallbackTimetable(
+              selectedClassId,
+              activeClass?.name || 'Grade 8 - Section A',
+              activeClass?.grade_level || 'Grade 8',
+              shift,
+              faculty
+            );
+            setTimetable(defaultTT);
+            await saveTimetableToCache(selectedClassId, defaultTT, shiftConfigs);
+          }
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (hadCache) {
+        setTimeout(runServerCheck, 1200);
+      } else {
+        runServerCheck();
       }
     };
 
@@ -375,8 +421,10 @@ export const SchoolTimetablePage: React.FC = () => {
         shift_type: classShifts[selectedClassId] || timetable.shift_type || 'full_day',
         periods: timetable.periods,
       });
+      await saveTimetableToCache(selectedClassId, timetable, shiftConfigs);
       showToast('အတန်းချိန်ဇယား အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ (Timetable Saved)');
     } catch (err: any) {
+      await saveTimetableToCache(selectedClassId, timetable, shiftConfigs);
       // Local fallback success
       showToast('အတန်းချိန်ဇယား သိမ်းဆည်းပြီးပါပြီ (Saved to Local Cache)');
     } finally {
@@ -606,7 +654,7 @@ export const SchoolTimetablePage: React.FC = () => {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
-            {isTeacher && (
+            {isTeacher && !routeClassId && (
               <Link
                 to="/teacher"
                 className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition mb-2"
