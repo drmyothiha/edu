@@ -96,27 +96,53 @@ func BuildMerkleTree(leafHashes []string) (string, map[string][]MerkleProof, err
 
 // HashPair computes sha256(left + right) in hex
 func HashPair(left, right string) string {
-	lBytes, _ := hex.DecodeString(strings.TrimPrefix(left, "0x"))
-	rBytes, _ := hex.DecodeString(strings.TrimPrefix(right, "0x"))
+	if len(left) >= 2 && (left[0] == '0' && (left[1] == 'x' || left[1] == 'X')) {
+		left = left[2:]
+	}
+	if len(right) >= 2 && (right[0] == '0' && (right[1] == 'x' || right[1] == 'X')) {
+		right = right[2:]
+	}
 
-	combined := append(lBytes, rBytes...)
-	h := sha256.Sum256(combined)
-	return "0x" + hex.EncodeToString(h[:])
+	// Single stack-allocated 64-byte array to hold decoded left and right bytes
+	var buf [64]byte
+	_, _ = hex.Decode(buf[:32], []byte(left))
+	_, _ = hex.Decode(buf[32:], []byte(right))
+
+	h := sha256.Sum256(buf[:])
+
+	// Direct encoding to string with '0x' prefix to avoid intermediate byte slice allocations
+	const hextable = "0123456789abcdef"
+	var out [66]byte
+	out[0] = '0'
+	out[1] = 'x'
+	for i, v := range h {
+		out[2+i*2] = hextable[v>>4]
+		out[2+i*2+1] = hextable[v&0x0f]
+	}
+	return string(out[:])
 }
 
 // VerifyMerkleProof checks whether a given leaf hash belongs to the Merkle root
 func VerifyMerkleProof(leafHash string, root string, proofs []MerkleProof) bool {
-	current := "0x" + strings.TrimPrefix(strings.ToLower(leafHash), "0x")
-	expectedRoot := "0x" + strings.TrimPrefix(strings.ToLower(root), "0x")
+	current := leafHash
 
 	for _, p := range proofs {
-		pHash := "0x" + strings.TrimPrefix(strings.ToLower(p.Hash), "0x")
 		if p.Position == "right" {
-			current = HashPair(current, pHash)
+			current = HashPair(current, p.Hash)
 		} else {
-			current = HashPair(pHash, current)
+			current = HashPair(p.Hash, current)
 		}
 	}
 
-	return current == expectedRoot
+	return equalHex(current, root)
+}
+
+func equalHex(a, b string) bool {
+	if len(a) >= 2 && (a[0] == '0' && (a[1] == 'x' || a[1] == 'X')) {
+		a = a[2:]
+	}
+	if len(b) >= 2 && (b[0] == '0' && (b[1] == 'x' || b[1] == 'X')) {
+		b = b[2:]
+	}
+	return strings.EqualFold(a, b)
 }

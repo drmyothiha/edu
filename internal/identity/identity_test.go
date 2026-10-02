@@ -2,6 +2,7 @@ package identity
 
 import (
 	"crypto/ed25519"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -97,6 +98,13 @@ func TestMerkleTreeBatchAndProof(t *testing.T) {
 		if !VerifyMerkleProof(leaf, root, proof) {
 			t.Errorf("Merkle proof verification failed for leaf %s", leaf)
 		}
+
+		// Test proof verification with prefix-less leaf and root
+		plainLeaf := strings.TrimPrefix(leaf, "0x")
+		plainRoot := strings.TrimPrefix(root, "0x")
+		if !VerifyMerkleProof(plainLeaf, plainRoot, proof) {
+			t.Errorf("Merkle proof verification failed for prefix-less leaf %s", plainLeaf)
+		}
 	}
 
 	// Verify fake leaf fails
@@ -144,4 +152,3 @@ func TestCredentialSchemaAndStatus(t *testing.T) {
 		t.Errorf("expected BitstringStatusListEntry, got %s", vc.CredentialStatus.Type)
 	}
 }
-
