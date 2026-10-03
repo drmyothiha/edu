@@ -2,7 +2,6 @@ package identity
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -94,14 +93,48 @@ func BuildMerkleTree(leafHashes []string) (string, map[string][]MerkleProof, err
 	return currentLevel[0], proofs, nil
 }
 
-// HashPair computes sha256(left + right) in hex
-func HashPair(left, right string) string {
-	lBytes, _ := hex.DecodeString(strings.TrimPrefix(left, "0x"))
-	rBytes, _ := hex.DecodeString(strings.TrimPrefix(right, "0x"))
+const hexTable = "0123456789abcdef"
 
-	combined := append(lBytes, rBytes...)
-	h := sha256.Sum256(combined)
-	return "0x" + hex.EncodeToString(h[:])
+func decodeHex32(s string, out []byte) {
+	if len(s) >= 2 && (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+		s = s[2:]
+	}
+	for i := 0; i < 32 && i*2+1 < len(s); i++ {
+		out[i] = (fromHexChar(s[i*2]) << 4) | fromHexChar(s[i*2+1])
+	}
+}
+
+func fromHexChar(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 0
+}
+
+// HashPair computes sha256(left + right) in hex with zero slice heap allocations
+func HashPair(left, right string) string {
+	// Performance optimization: decode left and right hex directly into stack-allocated buffer
+	// to avoid slice heap allocations during Merkle tree construction & verification.
+	var combined [64]byte
+	decodeHex32(left, combined[0:32])
+	decodeHex32(right, combined[32:64])
+
+	h := sha256.Sum256(combined[:])
+
+	// Format output hex string with 0x prefix using a single string allocation
+	var buf [66]byte
+	buf[0] = '0'
+	buf[1] = 'x'
+	for i, v := range h {
+		buf[2+i*2] = hexTable[v>>4]
+		buf[2+i*2+1] = hexTable[v&0x0f]
+	}
+	return string(buf[:])
 }
 
 // VerifyMerkleProof checks whether a given leaf hash belongs to the Merkle root
