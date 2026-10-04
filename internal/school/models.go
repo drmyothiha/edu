@@ -331,6 +331,10 @@ type VerificationResult struct {
 	SchoolName       string    `json:"school_name"`
 	SchoolCode       string    `json:"school_code"`
 	CredentialHash   string    `json:"credential_hash"`
+	CredentialType   string    `json:"credential_type,omitempty"`
+	TrustModel       string    `json:"trust_model,omitempty"` // "did_web_pki" or "polygon_l2_merkle"
+	IssuerDID        string    `json:"issuer_did,omitempty"`
+	PublicKeyURL     string    `json:"public_key_url,omitempty"`
 	MerkleRoot       string    `json:"merkle_root,omitempty"`
 	PolygonTxHash    string    `json:"polygon_tx_hash,omitempty"`
 	Network          string    `json:"network"`
@@ -734,11 +738,14 @@ type GateRosterResponse struct {
 	GeneratedAt time.Time        `json:"generated_at"`
 }
 
-// SyncAttendanceEvent represents a single attendance scan event queued offline
+// SyncAttendanceEvent represents a single attendance scan event queued offline.
+// StudentID is a string because the offline kiosk may send a raw UUID from the
+// server roster or a human-readable demo id (e.g. "student-demo-001") when it
+// runs from its seeded offline defaults.
 type SyncAttendanceEvent struct {
-	EventID     string     `json:"event_id"`
-	StudentID   *uuid.UUID `json:"student_id,omitempty"`
-	DID         string     `json:"did"`
+	EventID     string `json:"event_id"`
+	StudentID   string `json:"student_id,omitempty"`
+	DID         string `json:"did"`
 	StudentName string     `json:"student_name,omitempty"`
 	RollNo      string     `json:"roll_no,omitempty"`
 	ClassID     *uuid.UUID `json:"class_id,omitempty"`

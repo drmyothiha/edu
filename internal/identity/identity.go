@@ -253,3 +253,60 @@ func GenerateDIDDocument(did string, publicKeyHex string) DIDDocument {
 	}
 }
 
+// GetSchoolPublicKeyHex derives the deterministic Ed25519 public key hex for a school
+func GetSchoolPublicKeyHex(schoolCode string) string {
+	seed := sha256.Sum256([]byte("edu-school-authority-signing-key:" + schoolCode))
+	pub := ed25519.NewKeyFromSeed(seed[:]).Public().(ed25519.PublicKey)
+	return hex.EncodeToString(pub)
+}
+
+// GetMinistryRootPublicKeyHex derives the deterministic root public key hex for Ministry of Education
+func GetMinistryRootPublicKeyHex() string {
+	seed := sha256.Sum256([]byte("moe-national-root-authority-signing-key:mm"))
+	pub := ed25519.NewKeyFromSeed(seed[:]).Public().(ed25519.PublicKey)
+	return hex.EncodeToString(pub)
+}
+
+// GenerateMoeDIDDocument creates the official W3C did:web:moe.gov.mm DID Document
+func GenerateMoeDIDDocument(schools []string) DIDDocument {
+	rootDid := "did:web:moe.gov.mm"
+	rootKeyID := fmt.Sprintf("%s#root-key-1", rootDid)
+	methods := []VerificationMethod{
+		{
+			ID:           rootKeyID,
+			Type:         "Ed25519VerificationKey2020",
+			Controller:   rootDid,
+			PublicKeyHex: GetMinistryRootPublicKeyHex(),
+		},
+	}
+	assertions := []string{rootKeyID}
+
+	for _, sc := range schools {
+		sc = strings.TrimSpace(sc)
+		if sc == "" {
+			continue
+		}
+		scKeyID := fmt.Sprintf("%s#%s", rootDid, sc)
+		methods = append(methods, VerificationMethod{
+			ID:           scKeyID,
+			Type:         "Ed25519VerificationKey2020",
+			Controller:   rootDid,
+			PublicKeyHex: GetSchoolPublicKeyHex(sc),
+		})
+		assertions = append(assertions, scKeyID)
+	}
+
+	return DIDDocument{
+		Context: []string{
+			"https://www.w3.org/ns/did/v1",
+			"https://w3id.org/security/suites/jws-2020/v1",
+			"https://w3id.org/security/suites/ed25519-2020/v1",
+		},
+		ID:                 rootDid,
+		VerificationMethod: methods,
+		Authentication:     assertions,
+		AssertionMethod:    assertions,
+	}
+}
+
+

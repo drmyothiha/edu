@@ -145,3 +145,16 @@ func TestCredentialSchemaAndStatus(t *testing.T) {
 	}
 }
 
+func TestGenerateMoeDIDDocument(t *testing.T) {
+	doc := GenerateMoeDIDDocument([]string{"MMR013035-BEHS01", "MMR013001001-BEHS01"})
+	if doc.ID != "did:web:moe.gov.mm" {
+		t.Errorf("expected did:web:moe.gov.mm, got %s", doc.ID)
+	}
+	if len(doc.VerificationMethod) != 3 {
+		t.Errorf("expected 3 verification methods, got %d", len(doc.VerificationMethod))
+	}
+	t.Logf("Root Key: %s", doc.VerificationMethod[0].PublicKeyHex)
+	t.Logf("BEHS Intaing Key: %s", doc.VerificationMethod[1].PublicKeyHex)
+}
+
+

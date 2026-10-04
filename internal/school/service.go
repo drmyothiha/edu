@@ -1682,6 +1682,31 @@ func (s *Service) VerifyStudentCredential(ctx context.Context, identifier string
 		return VerificationResult{}, fmt.Errorf("%w: corrupted credential json: %v", ErrInternalServer, err)
 	}
 
+	// Determine Credential Type and Trust Model
+	credType := vc.CredentialType
+	if credType == "" {
+		credType = "StudentIdentityCredential"
+	}
+
+	// Step 2: High-Stakes vs Daily Student Identity Credential
+	// Only final high school completion diplomas and national university degrees require on-chain Polygon L2 Merkle proof.
+	// Daily student ID cards use W3C did:web Standard PKI (zero gas, no blockchain dependency, 100% offline capable).
+	isHighStakes := strings.EqualFold(credType, "HighSchoolDiploma") ||
+		strings.EqualFold(credType, "GraduationCertificate") ||
+		strings.EqualFold(credType, "Diploma") ||
+		strings.EqualFold(credType, "OfficialTranscript") ||
+		strings.EqualFold(credType, "NationalDegree")
+
+	trustModel := "did_web_pki"
+	networkName := "W3C did:web (PKI)"
+	if isHighStakes {
+		trustModel = "polygon_l2_merkle"
+		networkName = "Polygon Amoy (L2)"
+	}
+
+	issuerDID := fmt.Sprintf("did:web:moe.gov.mm:schools:%s", rawVC.CredentialSubject.SchoolCode)
+	publicKeyURL := "https://moe.gov.mm/.well-known/did.json"
+
 	// Verify School Signature
 	schoolCode := rawVC.CredentialSubject.SchoolCode
 	schoolSeed := sha256.Sum256([]byte("edu-school-authority-signing-key:" + schoolCode))
@@ -1689,11 +1714,10 @@ func (s *Service) VerifyStudentCredential(ctx context.Context, identifier string
 
 	sigValid, _ := identity.VerifyCredentialSignature(&rawVC, schoolPub)
 
-	// Verify Merkle Proof if anchored
+	// Verify Merkle Proof (Required for High-Stakes Diplomas, optional audit for daily cards)
 	merkleValid := false
 	if vc.MerkleRoot.Valid {
 		if strings.EqualFold(vc.CredentialHash, vc.MerkleRoot.String) {
-			// Single-leaf batch: root is identical to leaf hash
 			merkleValid = true
 		} else if len(vc.MerkleProof) > 0 {
 			var proofs []identity.MerkleProof
@@ -1703,16 +1727,30 @@ func (s *Service) VerifyStudentCredential(ctx context.Context, identifier string
 		}
 	}
 
-	// Overall valid if signature is mathematically sound and credential is not revoked
-	isValid := sigValid && !vc.IsRevoked
+	// Overall valid evaluation:
+	var isValid bool
+	var msg string
 
-	msg := "Credential is valid, cryptographically verified, and authentic"
-	if vc.IsRevoked {
-		msg = fmt.Sprintf("Credential REVOKED by authority: %s", vc.RevocationReason.String)
-	} else if !sigValid {
-		msg = "Signature verification failed: credential data may have been altered"
-	} else if vc.MerkleRoot.Valid && !merkleValid {
-		msg = "Merkle tree proof mismatch against anchored root"
+	if isHighStakes {
+		isValid = sigValid && !vc.IsRevoked && (vc.MerkleRoot.Valid && merkleValid)
+		if vc.IsRevoked {
+			msg = fmt.Sprintf("Diploma REVOKED by authority: %s", vc.RevocationReason.String)
+		} else if !sigValid {
+			msg = "Signature verification failed: diploma data may have been altered"
+		} else if !vc.MerkleRoot.Valid || !merkleValid {
+			msg = "High-Stakes Diploma requires Polygon L2 Merkle proof, but on-chain anchor is missing or invalid"
+		} else {
+			msg = "Diploma is authentic, independently verified via Layer-2 Polygon Blockchain Merkle Anchor"
+		}
+	} else {
+		isValid = sigValid && !vc.IsRevoked
+		if vc.IsRevoked {
+			msg = fmt.Sprintf("Student ID REVOKED by authority: %s", vc.RevocationReason.String)
+		} else if !sigValid {
+			msg = "Signature verification failed: student ID data may have been altered"
+		} else {
+			msg = "Student ID is authentic and verified via W3C did:web Standard PKI (Ministry of Education)"
+		}
 	}
 
 	var mRoot, polyTx string
@@ -1723,22 +1761,46 @@ func (s *Service) VerifyStudentCredential(ctx context.Context, identifier string
 		polyTx = vc.PolygonTxHash.String
 	}
 
+	studentName := rawVC.CredentialSubject.StudentID
+	if vc.StudentID != uuid.Nil {
+		if u, err := s.queries.GetUserByID(ctx, vc.StudentID); err == nil && u.FullName != "" {
+			studentName = u.FullName
+		}
+	}
+
 	return VerificationResult{
 		IsValid:          isValid,
 		IsRevoked:        vc.IsRevoked,
 		SignatureValid:   sigValid,
 		MerkleProofValid: merkleValid,
 		DID:              vc.Did,
-		StudentName:      rawVC.CredentialSubject.StudentID, // or fetch user
+		StudentName:      studentName,
 		SchoolName:       rawVC.CredentialSubject.SchoolName,
 		SchoolCode:       rawVC.CredentialSubject.SchoolCode,
 		CredentialHash:   vc.CredentialHash,
+		CredentialType:   credType,
+		TrustModel:       trustModel,
+		IssuerDID:        issuerDID,
+		PublicKeyURL:     publicKeyURL,
 		MerkleRoot:       mRoot,
 		PolygonTxHash:    polyTx,
-		Network:          "Polygon Amoy (L2)",
+		Network:          networkName,
 		VerificationTime: time.Now().UTC(),
 		Message:          msg,
 	}, nil
+}
+
+// GetMoeDIDDocument generates the official W3C did:web:moe.gov.mm DID Resolution Document
+func (s *Service) GetMoeDIDDocument(ctx context.Context) identity.DIDDocument {
+	schoolCodes := []string{"MMR013035-BEHS01", "MMR013001001-BEHS01", "MMR013034-PV02"}
+	if schools, err := s.queries.ListSchools(ctx); err == nil {
+		for _, sc := range schools {
+			if sc.Code != "" {
+				schoolCodes = append(schoolCodes, sc.Code)
+			}
+		}
+	}
+	return identity.GenerateMoeDIDDocument(schoolCodes)
 }
 
 // BatchAnchorCredentials collects all unanchored credentials, creates a Merkle Tree, and anchors to Layer-2
@@ -3521,10 +3583,15 @@ func (s *Service) SyncAttendanceBatch(ctx context.Context, req SyncAttendanceBat
 	for _, ev := range req.Events {
 		var studentID uuid.UUID
 
-		// 1. Resolve StudentID
-		if ev.StudentID != nil && *ev.StudentID != uuid.Nil {
-			studentID = *ev.StudentID
-		} else if ev.DID != "" {
+		// 1. Resolve StudentID: accept a real UUID from the server roster,
+		// otherwise fall back to the DID lookup. Offline demo kiosks send
+		// human-readable ids like "student-demo-001" which are not UUIDs.
+		if ev.StudentID != "" {
+			if parsed, err := uuid.Parse(ev.StudentID); err == nil {
+				studentID = parsed
+			}
+		}
+		if studentID == uuid.Nil && ev.DID != "" {
 			vc, err := s.queries.GetVerifiableCredentialByDID(ctx, ev.DID)
 			if err == nil {
 				studentID = vc.StudentID

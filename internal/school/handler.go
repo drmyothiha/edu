@@ -831,6 +831,16 @@ func (h *Handler) VerifyStudentCredential(w http.ResponseWriter, r *http.Request
 	response.JSON(w, http.StatusOK, result)
 }
 
+// ServeMoeDIDDocument handles GET /.well-known/did.json (W3C did:web standard)
+func (h *Handler) ServeMoeDIDDocument(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	didDoc := h.service.GetMoeDIDDocument(ctx)
+	w.Header().Set("Content-Type", "application/did+ld+json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	response.JSON(w, http.StatusOK, didDoc)
+}
+
 // BatchAnchorCredentials handles POST /api/v1/blockchain/anchor-batch
 func (h *Handler) BatchAnchorCredentials(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

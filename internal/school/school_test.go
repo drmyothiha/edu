@@ -18,6 +18,7 @@ type mockQuerier struct {
 	summaryRows       []database.GetStudentAttendanceSummaryRow
 	pendingRows       []database.ListPendingAssignmentsByStudentIDRow
 	rosterRows        []database.GetClassAttendanceRosterRow
+	vcByDID           map[string]database.VerifiableCredential
 }
 
 func newMockQuerier() *mockQuerier {
@@ -121,6 +122,15 @@ func (m *mockQuerier) GetVerifiableCredentialByStudentID(ctx context.Context, st
 		StudentID: studentID,
 		Did:       "did:edu:mm:013:MMR013035-BEHS01-2026-STU0042",
 	}, nil
+}
+
+func (m *mockQuerier) GetVerifiableCredentialByDID(ctx context.Context, did string) (database.VerifiableCredential, error) {
+	if m.vcByDID != nil {
+		if vc, ok := m.vcByDID[did]; ok {
+			return vc, nil
+		}
+	}
+	return database.VerifiableCredential{}, ErrNotFound
 }
 
 func (m *mockQuerier) ListStudentsByClassID(ctx context.Context, classID uuid.UUID) ([]database.ListStudentsByClassIDRow, error) {
@@ -289,7 +299,7 @@ func TestSyncAttendanceBatch(t *testing.T) {
 		Events: []SyncAttendanceEvent{
 			{
 				EventID:     eventID,
-				StudentID:   &studentID,
+				StudentID:   studentID.String(),
 				DID:         "did:edu:mm:013:MMR013035-BEHS01-2026-STU0042",
 				StudentName: "MAUNG AUNG KYAW",
 				ClassID:     &classID,
@@ -324,6 +334,56 @@ func TestSyncAttendanceBatch(t *testing.T) {
 	}
 	if record.StudentID != studentID {
 		t.Errorf("expected student ID %s, got %s", studentID, record.StudentID)
+	}
+}
+
+// TestSyncAttendanceBatchDemoStudentID ensures the offline kiosk's human-readable
+// demo student ids (e.g. "student-demo-001") are tolerated and resolved via DID.
+func TestSyncAttendanceBatchDemoStudentID(t *testing.T) {
+	mock := newMockQuerier()
+	classID := uuid.New()
+	mock.classes[classID] = database.Class{ID: classID, Name: "Grade 5-A"}
+
+	realStudentID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	did := "did:edu:mm:013:MMR013035-BEHS01-2026-STU0042"
+	mock.vcByDID = map[string]database.VerifiableCredential{
+		did: {StudentID: realStudentID, Did: did},
+	}
+
+	service := NewService(mock)
+
+	resp, err := service.SyncAttendanceBatch(context.Background(), SyncAttendanceBatchRequest{
+		SchoolCode: "MMR013035-BEHS01",
+		DeviceID:   "GATE-01-DESK",
+		Events: []SyncAttendanceEvent{
+			{
+				EventID:     "ev-demo-001",
+				StudentID:   "student-demo-001",
+				DID:         did,
+				StudentName: "MAUNG AUNG KYAW",
+				ClassName:   "Grade 5-A",
+				EventDate:   "2026-10-02",
+				ScanMethod:  "nfc_tap",
+				Status:      "late",
+				DeviceID:    "GATE-01-DESK",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error during batch sync: %v", err)
+	}
+
+	if resp.SyncedCount != 1 || resp.FailedCount != 0 {
+		t.Fatalf("expected 1 synced / 0 failed, got %d / %d (errors: %v)", resp.SyncedCount, resp.FailedCount, resp.Errors)
+	}
+	if len(mock.attendanceRecords) != 1 {
+		t.Fatalf("expected 1 attendance record in db, got %d", len(mock.attendanceRecords))
+	}
+	if mock.attendanceRecords[0].StudentID != realStudentID {
+		t.Errorf("expected attendance for real student %s, got %s", realStudentID, mock.attendanceRecords[0].StudentID)
+	}
+	if mock.attendanceRecords[0].Status != "late" {
+		t.Errorf("expected status 'late', got %s", mock.attendanceRecords[0].Status)
 	}
 }
 

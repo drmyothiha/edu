@@ -94,8 +94,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		})
 	})
 
+	// W3C did:web Resolution Endpoint (Standard PKI)
+	r.Get("/.well-known/did.json", cfg.SchoolHandler.ServeMoeDIDDocument)
+
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/.well-known/did.json", cfg.SchoolHandler.ServeMoeDIDDocument)
+
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			response.JSON(w, http.StatusOK, map[string]string{
 				"status": "healthy",
@@ -222,6 +227,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Route("/copilot", func(r chi.Router) {
 				r.Use(cfg.AuthMiddleware.RequireRoles("teacher", "school_admin", "admin", "sysadmin"))
 				r.Post("/lesson-plan", cfg.CopilotHandler.GenerateLessonPlan)
+				r.Post("/lesson-plan/stream", cfg.CopilotHandler.GenerateLessonPlanStream)
+				r.Get("/lesson-plan/stream", cfg.CopilotHandler.GenerateLessonPlanStream)
 				r.Get("/lesson-plans", cfg.CopilotHandler.ListLessonPlans)
 				r.Get("/lesson-plan/{id}", cfg.CopilotHandler.GetLessonPlan)
 				r.Post("/lesson-plan/{id}/translate", cfg.CopilotHandler.TranslateLessonPlan)
