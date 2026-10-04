@@ -157,4 +157,22 @@ func TestGenerateMoeDIDDocument(t *testing.T) {
 	t.Logf("BEHS Intaing Key: %s", doc.VerificationMethod[1].PublicKeyHex)
 }
 
+func BenchmarkBuildMerkleTree1024(b *testing.B) {
+	leaves := make([]string, 1024)
+	for i := 0; i < 1024; i++ {
+		leaves[i] = "0x1111111111111111111111111111111111111111111111111111111111111111"
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = BuildMerkleTree(leaves)
+	}
+}
 
+func BenchmarkHashPair(b *testing.B) {
+	left := "0x1111111111111111111111111111111111111111111111111111111111111111"
+	right := "0x2222222222222222222222222222222222222222222222222222222222222222"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = HashPair(left, right)
+	}
+}
