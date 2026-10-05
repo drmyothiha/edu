@@ -96,25 +96,60 @@ func BuildMerkleTree(leafHashes []string) (string, map[string][]MerkleProof, err
 
 // HashPair computes sha256(left + right) in hex
 func HashPair(left, right string) string {
-	lBytes, _ := hex.DecodeString(strings.TrimPrefix(left, "0x"))
-	rBytes, _ := hex.DecodeString(strings.TrimPrefix(right, "0x"))
-
-	combined := append(lBytes, rBytes...)
-	h := sha256.Sum256(combined)
+	var combined [64]byte
+	decodeHexToBuf(left, combined[:32])
+	decodeHexToBuf(right, combined[32:])
+	h := sha256.Sum256(combined[:])
 	return "0x" + hex.EncodeToString(h[:])
+}
+
+// HashPairBytes computes sha256(left + right) for fixed 32-byte hashes without memory allocations
+func HashPairBytes(left, right [32]byte) [32]byte {
+	var combined [64]byte
+	copy(combined[:32], left[:])
+	copy(combined[32:], right[:])
+	return sha256.Sum256(combined[:])
+}
+
+// decodeHexToBuf decodes hex characters from s into dst without heap allocations
+func decodeHexToBuf(s string, dst []byte) {
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		s = s[2:]
+	}
+	i, j := 0, 0
+	for i+1 < len(s) && j < len(dst) {
+		dst[j] = (fromHexChar(s[i]) << 4) | fromHexChar(s[i+1])
+		i += 2
+		j++
+	}
+}
+
+func fromHexChar(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 0
 }
 
 // VerifyMerkleProof checks whether a given leaf hash belongs to the Merkle root
 func VerifyMerkleProof(leafHash string, root string, proofs []MerkleProof) bool {
-	current := "0x" + strings.TrimPrefix(strings.ToLower(leafHash), "0x")
-	expectedRoot := "0x" + strings.TrimPrefix(strings.ToLower(root), "0x")
+	var current [32]byte
+	var expectedRoot [32]byte
+	decodeHexToBuf(leafHash, current[:])
+	decodeHexToBuf(root, expectedRoot[:])
 
 	for _, p := range proofs {
-		pHash := "0x" + strings.TrimPrefix(strings.ToLower(p.Hash), "0x")
+		var pHash [32]byte
+		decodeHexToBuf(p.Hash, pHash[:])
 		if p.Position == "right" {
-			current = HashPair(current, pHash)
+			current = HashPairBytes(current, pHash)
 		} else {
-			current = HashPair(pHash, current)
+			current = HashPairBytes(pHash, current)
 		}
 	}
 
