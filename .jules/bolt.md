@@ -1,0 +1,3 @@
+## 2026-10-05 - Zero-Allocation Merkle Proof Verification with Fixed Stack Buffers
+**Learning:** `hex.DecodeString` and `strings.TrimPrefix` allocations inside tight loops (like Merkle proof path traversals) cause heavy heap allocations (`51 allocs/op`, `3072 B/op`). Operating on fixed `[32]byte` stack arrays with a stack-based hex decoder completely eliminates heap allocations (`0 B/op`) and cuts latency by ~50%.
+**Action:** For cryptographic hash computations and proof verifications in Go, pass fixed `[32]byte` arrays and decode hex strings directly into stack-allocated buffers rather than converting back and forth to hex strings and byte slices.
