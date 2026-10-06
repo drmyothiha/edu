@@ -268,3 +268,12 @@ func TestRAGPipelineStreaming(t *testing.T) {
 		t.Errorf("expected at least 7 pipeline steps emitted, got %d", len(emittedSteps))
 	}
 }
+
+func BenchmarkGenerateDenseVector(b *testing.B) {
+	encoder := NewSemanticDenseEncoder("", "", "text-embedding-3-small")
+	text := "Unit 4: Fractions and Operations (အပိုင်းကိန်းများနှင့် တွက်ချက်မှုများ) Addition and Subtraction of Unlike Fractions (ပိုင်းခြေမတူသော အပိုင်းကိန်းများ)"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = encoder.generateDenseVector(text)
+	}
+}

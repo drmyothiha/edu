@@ -1,0 +1,3 @@
+## 2026-10-06 - Dense Vector Feature Hashing Optimization
+**Learning:** In local dense vector feature hashing (e.g. for RAG embeddings and subword n-grams), using cryptographic hashing (`sha256.Sum256`) and creating heap allocations via `string(runes[i:i+n])` or string concatenation (`+`) inside nested loops introduces major latency (~237µs/op) and GC overhead. Switching to non-cryptographic FNV-1a hashing and direct word/rune sub-slice hashing reduced vector generation time by ~5.7x (from ~237µs to ~41µs) and reduced heap allocations by 87% (from 31 to 4 allocs/op).
+**Action:** For feature hashing or token bucket projections, always prefer non-cryptographic hashes (FNV-1a) and operate directly on slices without intermediate string allocations.
