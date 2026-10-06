@@ -3,8 +3,6 @@ package copilot
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,40 +140,41 @@ func (e *SemanticDenseEncoder) callOpenAIEmbedding(ctx context.Context, text str
 
 // generateDenseVector produces a deterministic, cosine-normalized dense embedding
 // using multi-scale n-gram subword feature hashing and educational domain vocabulary weights.
+// Optimization: Uses fast non-cryptographic FNV-1a hashing and zero-allocation slice iteration
+// over word groups and rune slices instead of sha256 and sub-string allocations.
 func (e *SemanticDenseEncoder) generateDenseVector(text string) []float64 {
 	vec := make([]float64, EmbeddingDimension)
-	words := strings.Fields(strings.ToLower(text))
+	lowerText := strings.ToLower(text)
+	words := strings.Fields(lowerText)
 	if len(words) == 0 {
 		return vec
 	}
 
-	// 1. Unigram & Bi-gram semantic hashing
+	// 1. Unigram, Bi-gram & Tri-gram semantic hashing without string concatenations
 	for i := 0; i < len(words); i++ {
 		w := words[i]
 		weight := getTermWeight(w)
 
 		// Unigram
-		hashIntoVector(vec, w, weight*1.0)
+		hashWordGroupIntoVector(vec, words[i:i+1], weight*1.0)
 
 		// Bigram
 		if i+1 < len(words) {
-			bigram := w + "_" + words[i+1]
-			hashIntoVector(vec, bigram, weight*1.4)
+			hashWordGroupIntoVector(vec, words[i:i+2], weight*1.4)
 		}
 
 		// Trigram
 		if i+2 < len(words) {
-			trigram := w + "_" + words[i+1] + "_" + words[i+2]
-			hashIntoVector(vec, trigram, weight*1.8)
+			hashWordGroupIntoVector(vec, words[i:i+3], weight*1.8)
 		}
 	}
 
 	// 2. Character n-gram hashing for subword robustness (crucial for Burmese and compound terms)
-	runes := []rune(strings.ToLower(text))
+	// Zero string allocations per character n-gram by hashing rune sub-slices directly.
+	runes := []rune(lowerText)
 	for n := 3; n <= 5; n++ {
 		for i := 0; i+n <= len(runes); i++ {
-			sub := string(runes[i : i+n])
-			hashIntoVector(vec, sub, 0.4)
+			hashRunesIntoVector(vec, runes[i:i+n], 0.4)
 		}
 	}
 
@@ -194,16 +193,51 @@ func (e *SemanticDenseEncoder) generateDenseVector(text string) []float64 {
 	return vec
 }
 
-func hashIntoVector(vec []float64, token string, weight float64) {
-	h := sha256.Sum256([]byte(token))
-	idx1 := int(binary.BigEndian.Uint32(h[0:4])) % len(vec)
-	idx2 := int(binary.BigEndian.Uint32(h[4:8])) % len(vec)
+// hashWordGroupIntoVector computes FNV-1a hash across a sequence of words without string concatenation.
+func hashWordGroupIntoVector(vec []float64, words []string, weight float64) {
+	const offset64 = 14695981039346656037
+	const prime64 = 1099511628211
+	h := uint64(offset64)
+	for idx, w := range words {
+		if idx > 0 {
+			h ^= uint64('_')
+			h *= prime64
+		}
+		for i := 0; i < len(w); i++ {
+			h ^= uint64(w[i])
+			h *= prime64
+		}
+	}
+	applyHashToVector(vec, h, weight)
+}
+
+// hashRunesIntoVector computes FNV-1a hash directly over a rune slice without heap string allocations.
+func hashRunesIntoVector(vec []float64, runes []rune, weight float64) {
+	const offset64 = 14695981039346656037
+	const prime64 = 1099511628211
+	h := uint64(offset64)
+	for _, r := range runes {
+		h ^= uint64(r & 0xff)
+		h *= prime64
+		h ^= uint64((r >> 8) & 0xff)
+		h *= prime64
+		h ^= uint64((r >> 16) & 0xff)
+		h *= prime64
+		h ^= uint64((r >> 24) & 0xff)
+		h *= prime64
+	}
+	applyHashToVector(vec, h, weight)
+}
+
+func applyHashToVector(vec []float64, h uint64, weight float64) {
+	idx1 := int(uint32(h)) % len(vec)
+	idx2 := int(uint32(h>>32)) % len(vec)
 	sign1 := 1.0
-	if h[8]&1 == 0 {
+	if (h & 1) == 0 {
 		sign1 = -1.0
 	}
 	sign2 := 1.0
-	if h[9]&1 == 0 {
+	if (h & 2) == 0 {
 		sign2 = -1.0
 	}
 
